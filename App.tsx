@@ -1,0 +1,468 @@
+import React, { useState } from 'react';
+import {
+  StyleSheet,
+  View,
+  TextInput,
+  TouchableOpacity,
+  Text,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import { generateImageLocal, isLocalGenerationAvailable, preloadModel, testModelLoading } from './services/localImageGenerationService';
+import { 
+  areAllModelsCached, 
+  downloadAllModels, 
+  getTotalDownloadSize,
+  clearModelCache 
+} from './services/modelDownloadService';
+
+export default function App() {
+  const [prompt, setPrompt] = useState('');
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [localAvailable, setLocalAvailable] = useState(false);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [modelStatus, setModelStatus] = useState<string>('');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<{model: string; percentage: number} | null>(null);
+
+  // Check if local generation is available on mount
+  React.useEffect(() => {
+    checkLocalAvailability();
+  }, []);
+
+  // Auto-download models on startup if not cached
+  React.useEffect(() => {
+    autoDownloadModels();
+  }, []);
+
+  const autoDownloadModels = async () => {
+    try {
+      const allCached = await areAllModelsCached();
+      
+      if (!allCached && localAvailable) {
+        // Models not cached, but don't auto-download - let user decide
+        // The UI will show the download button
+        console.log('Models not cached. User can download when ready.');
+      }
+    } catch (error) {
+      console.log('Error checking model cache:', error);
+    }
+  };
+
+  const checkLocalAvailability = async () => {
+    try {
+      const available = await isLocalGenerationAvailable();
+      setLocalAvailable(available);
+      
+      if (!available) {
+        setModelStatus('Native module not available');
+        return;
+      }
+      
+      // Check if models are cached
+      const allCached = await areAllModelsCached();
+      
+      if (!allCached) {
+        // Models need to be downloaded from S3
+        setModelStatus('Models not cached. Ready to download from S3.');
+        setModelLoading(false);
+        // Don't auto-download - let user decide when to download
+        return;
+      }
+      
+      // Models are cached, try to load them
+      setModelLoading(true);
+      setModelStatus('Loading models...');
+      
+      const testResult = await testModelLoading();
+      if (testResult.success) {
+        setModelStatus(`✅ Models loaded: ${Object.keys(testResult.models || {}).filter(k => testResult.models?.[k]).length} components`);
+      } else {
+        setModelStatus(`⚠️ ${testResult.message}`);
+      }
+      
+      setModelLoading(false);
+    } catch (err: any) {
+      console.log('Local generation not available:', err);
+      setLocalAvailable(false);
+      setModelStatus(`❌ ${err.message || 'Not available'}`);
+    }
+  };
+
+  const handleDownloadModels = async () => {
+    if (downloading) return;
+    
+    setDownloading(true);
+    setModelStatus('Preparing download from S3...');
+    
+    try {
+      const totalSize = getTotalDownloadSize();
+      const sizeGB = (totalSize / 1024 / 1024 / 1024).toFixed(2);
+      
+      Alert.alert(
+        'Download Models from S3',
+        `Download ${sizeGB} GB of models from AWS S3?\n\nThis may take a while depending on your connection.\n\nSource: image-gen-pd123.s3.eu-north-1.amazonaws.com`,
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => setDownloading(false) },
+          {
+            text: 'Download',
+            onPress: async () => {
+              try {
+                setModelStatus('Starting download from S3...');
+                
+                await downloadAllModels((modelName, progress) => {
+                  setDownloadProgress({
+                    model: modelName,
+                    percentage: progress.percentage,
+                  });
+                  const loadedMB = (progress.loaded / 1024 / 1024).toFixed(1);
+                  const totalMB = (progress.total / 1024 / 1024).toFixed(1);
+                  setModelStatus(`Downloading ${modelName}: ${progress.percentage.toFixed(1)}% (${loadedMB}MB / ${totalMB}MB)`);
+                });
+                
+                setModelStatus('✅ Download complete! Loading models...');
+                setDownloadProgress(null);
+                
+                // Reload models after download
+                await checkLocalAvailability();
+              } catch (error: any) {
+                console.error('Download error:', error);
+                setModelStatus(`❌ Download failed: ${error.message}`);
+                Alert.alert(
+                  'Download Error', 
+                  `Failed to download models:\n\n${error.message}\n\nPlease check:\n- Internet connection\n- S3 bucket is accessible\n- Files exist in S3`
+                );
+              } finally {
+                setDownloading(false);
+              }
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      setModelStatus(`❌ Error: ${error.message}`);
+      setDownloading(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!prompt.trim()) {
+      Alert.alert('Error', 'Please enter a prompt');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setGeneratedImage(null);
+
+    try {
+      const imageDataUri = await generateImageLocal(prompt.trim(), {
+        steps: 20,
+        guidanceScale: 7.5,
+        width: 512,
+        height: 512,
+      });
+      setGeneratedImage(imageDataUri);
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate image');
+      Alert.alert('Error', err.message || 'Failed to generate image');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClear = () => {
+    setPrompt('');
+    setGeneratedImage(null);
+    setError(null);
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <StatusBar style="auto" />
+      <LinearGradient
+        colors={['#667eea', '#764ba2']}
+        style={styles.gradient}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.header}>
+            <Text style={styles.title}>AI Image Generator</Text>
+            <Text style={styles.subtitle}>Transform your ideas into images</Text>
+            {localAvailable && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>🚀 On-Device Generation</Text>
+              </View>
+            )}
+            {modelLoading && (
+              <Text style={styles.modelLoadingText}>Loading model...</Text>
+            )}
+            {modelStatus && !modelLoading && (
+              <Text style={styles.modelStatusText}>{modelStatus}</Text>
+            )}
+            {downloadProgress && (
+              <View style={styles.downloadContainer}>
+                <Text style={styles.downloadText}>
+                  Downloading {downloadProgress.model}: {downloadProgress.percentage.toFixed(1)}%
+                </Text>
+                <View style={styles.progressBar}>
+                  <View 
+                    style={[
+                      styles.progressFill, 
+                      { width: `${downloadProgress.percentage}%` }
+                    ]} 
+                  />
+                </View>
+              </View>
+            )}
+            {!modelLoading && modelStatus.includes('Download required') && (
+              <TouchableOpacity
+                style={[styles.button, styles.downloadButton]}
+                onPress={handleDownloadModels}
+                disabled={downloading}
+              >
+                <Text style={styles.buttonText}>
+                  {downloading ? 'Downloading...' : 'Download Models'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.input}
+              placeholder="Describe the image you want to generate..."
+              placeholderTextColor="#999"
+              value={prompt}
+              onChangeText={setPrompt}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+              editable={!loading}
+            />
+          </View>
+
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity
+              style={[styles.button, styles.generateButton]}
+              onPress={handleGenerate}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Generate Image</Text>
+              )}
+            </TouchableOpacity>
+
+            {generatedImage && (
+              <TouchableOpacity
+                style={[styles.button, styles.clearButton]}
+                onPress={handleClear}
+                disabled={loading}
+              >
+                <Text style={styles.buttonText}>Clear</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {error && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
+
+          {generatedImage && (
+            <View style={styles.imageContainer}>
+              <Image
+                source={{ uri: generatedImage }}
+                style={styles.image}
+                contentFit="contain"
+                transition={200}
+              />
+            </View>
+          )}
+
+          {loading && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#fff" />
+              <Text style={styles.loadingText}>Generating your image...</Text>
+            </View>
+          )}
+        </ScrollView>
+      </LinearGradient>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  gradient: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: 20,
+    paddingTop: 60,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#fff',
+    opacity: 0.9,
+  },
+  inputContainer: {
+    marginBottom: 20,
+  },
+  input: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    minHeight: 120,
+    textAlignVertical: 'top',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  button: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  generateButton: {
+    backgroundColor: '#4CAF50',
+  },
+  clearButton: {
+    backgroundColor: '#f44336',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(244, 67, 54, 0.2)',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 20,
+  },
+  errorText: {
+    color: '#fff',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  imageContainer: {
+    marginTop: 20,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  image: {
+    width: '100%',
+    aspectRatio: 1,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  loadingText: {
+    color: '#fff',
+    marginTop: 12,
+    fontSize: 16,
+  },
+  badge: {
+    backgroundColor: 'rgba(76, 175, 80, 0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(76, 175, 80, 0.5)',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  modelLoadingText: {
+    color: '#fff',
+    fontSize: 12,
+    marginTop: 4,
+    opacity: 0.8,
+  },
+  modelStatusText: {
+    color: '#fff',
+    fontSize: 11,
+    marginTop: 4,
+    opacity: 0.9,
+    textAlign: 'center',
+  },
+  downloadContainer: {
+    marginTop: 12,
+    width: '100%',
+  },
+  downloadText: {
+    color: '#fff',
+    fontSize: 12,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#4CAF50',
+  },
+  downloadButton: {
+    backgroundColor: '#2196F3',
+    marginTop: 12,
+  },
+});
