@@ -8,6 +8,7 @@ import Foundation
 import CoreML
 import UIKit
 import StableDiffusion
+import Compression
 
 @objc(ImageGenerationModule)
 class ImageGenerationModule: NSObject {
@@ -357,5 +358,248 @@ class ImageGenerationModule: NSObject {
     // Not found in either location
     print("  ❌ \(modelName) not found in bundle or Documents - needs download")
     resolver("none")
+  }
+  
+  /**
+   * Extract tar.gz archive to a directory
+   * Returns the path to the extracted directory
+   */
+  @objc
+  func extractTarGz(_ tarGzPath: String, resolver: @escaping RCTPromiseResolveBlock, rejecter: @escaping RCTPromiseRejectBlock) {
+    let workItem = DispatchWorkItem {
+      do {
+        // Remove file:// prefix if present, as URL(fileURLWithPath:) expects a file path, not a URL string
+        var cleanPath = tarGzPath
+        if cleanPath.hasPrefix("file://") {
+          cleanPath = String(cleanPath.dropFirst(7))  // Remove "file://" prefix
+        }
+        
+        let tarGzURL = URL(fileURLWithPath: cleanPath)
+        
+        // Verify file exists
+        guard FileManager.default.fileExists(atPath: cleanPath) else {
+          rejecter("FILE_NOT_FOUND", "tar.gz file not found at: \(cleanPath)", nil)
+          return
+        }
+        
+        print("📦 Extracting tar.gz: \(tarGzPath)")
+        
+        // Determine output directory (same directory as tar.gz, without .tar.gz extension)
+        let outputDir = tarGzURL.deletingPathExtension().deletingPathExtension() // Remove .tar.gz
+        let outputPath = outputDir.path
+        
+        // Create output directory
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true, attributes: nil)
+        
+        // Read tar.gz file
+        let tarGzData = try Data(contentsOf: tarGzURL)
+        print("   File size: \(tarGzData.count) bytes")
+        
+        // Decompress gzip using Compression framework
+        let decompressedData = try self.decompressGzip(data: tarGzData)
+        print("   Decompressed size: \(decompressedData.count) bytes")
+        
+        // Extract tar archive
+        try self.extractTar(data: decompressedData, to: outputDir)
+        
+        print("✅ Extracted to: \(outputPath)")
+        resolver(outputPath)
+      } catch {
+        print("❌ Extraction error: \(error.localizedDescription)")
+        rejecter("EXTRACTION_ERROR", error.localizedDescription, error)
+      }
+    }
+    DispatchQueue.global(qos: .userInitiated).async(execute: workItem)
+  }
+  
+  /**
+   * Decompress gzip data using Compression framework
+   * Note: Gzip uses deflate compression (similar to zlib) but with additional headers
+   */
+  private func decompressGzip(data: Data) throws -> Data {
+    // Check for gzip magic number (1f 8b)
+    if data.count < 2 {
+      throw NSError(domain: "Compression", code: -1, userInfo: [NSLocalizedDescriptionKey: "Data too short for gzip"])
+    }
+    
+    let magicBytes = data.prefix(2)
+    let isGzip = magicBytes[0] == 0x1f && magicBytes[1] == 0x8b
+    
+    if !isGzip {
+      print("   ⚠️ Warning: File doesn't appear to be gzip format (magic: \(String(format: "%02x %02x", magicBytes[0], magicBytes[1])))")
+    }
+    
+    // For gzip, we need to skip the header (10 bytes minimum) and process the deflate stream
+    // Gzip header is: magic (2) + method (1) + flags (1) + mtime (4) + xfl (1) + os (1) = 10 bytes minimum
+    // Then optional extra fields, filename, comment, etc.
+    // Then the deflate stream starts
+    
+    var headerOffset = 10 // Minimum header size
+    
+    // Skip optional fields if present
+    if data.count > 3 {
+      let flags = data[3]
+      if (flags & 0x04) != 0 { // FEXTRA
+        if data.count > headerOffset + 2 {
+          let xlen = UInt16(data[headerOffset]) | (UInt16(data[headerOffset + 1]) << 8)
+          headerOffset += Int(xlen) + 2
+        }
+      }
+      if (flags & 0x08) != 0 { // FNAME
+        while headerOffset < data.count && data[headerOffset] != 0 {
+          headerOffset += 1
+        }
+        headerOffset += 1 // Skip null terminator
+      }
+      if (flags & 0x10) != 0 { // FCOMMENT
+        while headerOffset < data.count && data[headerOffset] != 0 {
+          headerOffset += 1
+        }
+        headerOffset += 1 // Skip null terminator
+      }
+      if (flags & 0x02) != 0 { // FHCRC
+        headerOffset += 2 // Skip CRC16
+      }
+    }
+    
+    // Extract the deflate stream (skip header and footer)
+    // Footer is last 8 bytes: CRC32 (4) + ISIZE (4)
+    let footerSize = 8
+    let deflateData = data.subdata(in: headerOffset..<(data.count - footerSize))
+    
+    print("   📊 Gzip header size: \(headerOffset) bytes, deflate data: \(deflateData.count) bytes")
+    
+    // Now decompress the deflate stream using zlib
+    let bufferSize = 1024 * 1024 // 1 MB buffer
+    let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+    defer { destinationBuffer.deallocate() }
+    
+    let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+    defer { stream.deallocate() }
+    
+    var status = compression_stream_init(stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB)
+    guard status == COMPRESSION_STATUS_OK else {
+      throw NSError(domain: "Compression", code: Int(status.rawValue), userInfo: [NSLocalizedDescriptionKey: "Failed to initialize compression stream: \(status.rawValue)"])
+    }
+    defer { compression_stream_destroy(stream) }
+    
+    var result = Data()
+    
+    // Process the deflate stream
+    deflateData.withUnsafeBytes { sourceBytes in
+      stream.pointee.src_ptr = sourceBytes.bindMemory(to: UInt8.self).baseAddress!
+      stream.pointee.src_size = deflateData.count
+      
+      var hasMoreData = true
+      while hasMoreData {
+        stream.pointee.dst_ptr = destinationBuffer
+        stream.pointee.dst_size = bufferSize
+        
+        // Finalize when all source data is consumed
+        let isLastChunk = stream.pointee.src_size == 0
+        let flags: Int32 = isLastChunk ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0
+        
+        status = compression_stream_process(stream, flags)
+        
+        let bytesWritten = bufferSize - stream.pointee.dst_size
+        if bytesWritten > 0 {
+          result.append(destinationBuffer, count: bytesWritten)
+        }
+        
+        if status == COMPRESSION_STATUS_END {
+          print("   ✅ Successfully decompressed gzip data: \(result.count) bytes")
+          hasMoreData = false
+        } else if status != COMPRESSION_STATUS_OK {
+          print("   ⚠️ Decompression error, status: \(status.rawValue)")
+          hasMoreData = false
+        } else if stream.pointee.src_size == 0 {
+          // All input consumed, try finalizing
+          if !isLastChunk {
+            continue // Process again with finalize flag
+          }
+          hasMoreData = false
+        }
+      }
+    }
+    
+    if result.count > 0 {
+      if status == COMPRESSION_STATUS_END {
+        return result
+      } else {
+        print("   ⚠️ Warning: Decompression completed with status \(status.rawValue), but got \(result.count) bytes")
+        return result
+      }
+    }
+    
+    throw NSError(domain: "Compression", code: Int(status.rawValue), userInfo: [NSLocalizedDescriptionKey: "Failed to decompress gzip data. Status: \(status.rawValue), Output size: \(result.count)"])
+  }
+  
+  /**
+   * Extract tar archive (UStar format)
+   */
+  private func extractTar(data: Data, to outputDir: URL) throws {
+    var position = 0
+    
+    while position + 512 <= data.count {
+      // Read 512-byte block (tar header)
+      let headerData = data.subdata(in: position..<position + 512)
+      position += 512
+      
+      // Check if block is all zeros (end of archive)
+      if headerData.allSatisfy({ $0 == 0 }) {
+        break
+      }
+      
+      // Parse header
+      let header = try parseTarHeader(headerData)
+      
+      guard !header.name.isEmpty else {
+        continue
+      }
+      
+      // Calculate file size
+      let fileSize = header.size
+      let blocks = (fileSize + 511) / 512 // Round up to 512-byte blocks
+      
+      // Create file path
+      let fileURL = outputDir.appendingPathComponent(header.name)
+      
+      // Create parent directories
+      try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
+      
+      if header.type == "0" || header.type == "\0" {
+        // Regular file
+        let fileData = data.subdata(in: position..<position + Int(fileSize))
+        try fileData.write(to: fileURL)
+        print("   Extracted file: \(header.name) (\(fileSize) bytes)")
+      } else if header.type == "5" {
+        // Directory
+        try FileManager.default.createDirectory(at: fileURL, withIntermediateDirectories: true, attributes: nil)
+        print("   Extracted directory: \(header.name)")
+      }
+      // Skip other types (symlinks, etc.)
+      
+      position += Int(blocks) * 512
+    }
+  }
+  
+  /**
+   * Parse tar header (UStar format)
+   */
+  private func parseTarHeader(_ data: Data) throws -> (name: String, size: UInt64, type: String) {
+    // Name (100 bytes)
+    let nameData = data.subdata(in: 0..<100)
+    let name = String(data: nameData, encoding: .utf8)?.trimmingCharacters(in: CharacterSet(charactersIn: "\0")) ?? ""
+    
+    // File size (12 bytes, octal)
+    let sizeData = data.subdata(in: 124..<136)
+    let sizeString = String(data: sizeData, encoding: .utf8)?.trimmingCharacters(in: CharacterSet(charactersIn: "\0 ")) ?? "0"
+    let size = UInt64(sizeString, radix: 8) ?? 0
+    
+    // Type flag (1 byte)
+    let typeData = data.subdata(in: 156..<157)
+    let type = String(data: typeData, encoding: .utf8) ?? "0"
+    
+    return (name: name, size: size, type: type)
   }
 }

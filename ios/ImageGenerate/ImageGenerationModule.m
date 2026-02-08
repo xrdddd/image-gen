@@ -31,6 +31,10 @@ RCT_EXTERN_METHOD(checkModelLocation:(NSString *)modelName
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(extractTarGz:(NSString *)tarGzPath
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 + (BOOL)requiresMainQueueSetup
 {
   return NO;

@@ -341,30 +341,41 @@ export async function downloadModel(
       
       if (isTarGz) {
         // We downloaded a tar.gz archive - need to extract it
-        // Note: expo-file-system doesn't support tar.gz extraction natively
-        // For now, we'll move it and note that extraction is needed
-        // TODO: Add tar.gz extraction using a native module or library
+        console.log(`   📦 ${modelInfo.name} downloaded as tar.gz archive, extracting...`);
         
-        console.log(`   Note: ${modelInfo.name} downloaded as tar.gz archive`);
-        console.log(`   Extraction needed - currently not implemented`);
-        console.log(`   File saved at: ${tempPath}`);
-        
-        // Move tar.gz to final location (with .tar.gz extension)
+        // Move tar.gz to final location (with .tar.gz extension) first
         const tarGzPath = `${downloadPath}.tar.gz`;
         await FileSystem.moveAsync({
           from: tempPath,
           to: tarGzPath,
         });
         
-        // For now, throw an error explaining that extraction is needed
-        throw new Error(
-          `Downloaded ${modelInfo.name} as tar.gz archive, but extraction is not yet implemented.\n` +
-          `The tar.gz file is saved at: ${tarGzPath}\n\n` +
-          `To fix this:\n` +
-          `1. Install a tar extraction library (e.g., react-native-zip-archive)\n` +
-          `2. Or use a native module to extract tar.gz\n` +
-          `3. Or upload individual files from the directory to S3`
-        );
+        // Extract using native module
+        try {
+          const { ImageGenerationModuleNative } = require('./native/ImageGenerationModule');
+          if (ImageGenerationModuleNative && ImageGenerationModuleNative.extractTarGz) {
+            const extractedPath = await ImageGenerationModuleNative.extractTarGz(tarGzPath);
+            console.log(`   ✅ Extracted ${modelInfo.name} to: ${extractedPath}`);
+            
+            // Verify extraction
+            const extractedInfo = await FileSystem.getInfoAsync(extractedPath);
+            if (extractedInfo.exists && extractedInfo.isDirectory) {
+              // Optionally remove tar.gz file to save space
+              // await FileSystem.deleteAsync(tarGzPath, { idempotent: true });
+              console.log(`   ✅ Extraction verified: ${extractedPath}`);
+            } else {
+              throw new Error(`Extraction failed: ${extractedPath} does not exist or is not a directory`);
+            }
+          } else {
+            throw new Error('Native extractTarGz method not available');
+          }
+        } catch (extractError: any) {
+          console.error(`   ❌ Extraction error: ${extractError.message}`);
+          throw new Error(
+            `Failed to extract ${modelInfo.name}: ${extractError.message}\n` +
+            `The tar.gz file is saved at: ${tarGzPath}`
+          );
+        }
       } else {
         // Not tar.gz - try to move as-is (might be directory or file)
         await FileSystem.moveAsync({

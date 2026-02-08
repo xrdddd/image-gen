@@ -16,6 +16,7 @@ interface ImageGenerationModuleInterface {
     height: number
   ): Promise<string>; // Returns base64 string
   checkModelLocation(modelName: string): Promise<'bundle' | 'documents' | 'none'>;
+  extractTarGz(tarGzPath: string): Promise<string>;
 }
 
 // Get the native module
