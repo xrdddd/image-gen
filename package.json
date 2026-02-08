@@ -20,6 +20,7 @@
     "quantize-int8": "python3 scripts/quantize_to_int8.py",
     "clear-certificate": "bash scripts/clear_certificate.sh",
     "fix-provisioning": "bash scripts/fix_provisioning.sh",
+    "fix-native-module": "bash scripts/fix_native_module.sh",
     "postinstall": "patch-package",
     "start:ios": "ulimit -n 4096 && expo start --ios",
     "start:android": "ulimit -n 4096 && expo start --android",

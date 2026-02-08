@@ -41,19 +41,82 @@ export default function App() {
   // Auto-download models on startup if not cached
   React.useEffect(() => {
     autoDownloadModels();
-  }, []);
+  }, [localAvailable]); // Re-run when localAvailable changes
 
   const autoDownloadModels = async () => {
     try {
+      // Wait a bit for app to initialize
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
       const allCached = await areAllModelsCached();
       
       if (!allCached && localAvailable) {
-        // Models not cached, but don't auto-download - let user decide
-        // The UI will show the download button
-        console.log('Models not cached. User can download when ready.');
+        // Models not cached - auto-download
+        console.log('📥 Models not cached. Starting automatic download...');
+        setModelStatus('Preparing automatic download...');
+        
+        // Start download automatically
+        await handleDownloadModelsAuto();
+      } else if (allCached) {
+        console.log('✅ All models are cached');
+      } else if (!localAvailable) {
+        console.log('⚠️ Native module not available, skipping auto-download');
       }
     } catch (error) {
-      console.log('Error checking model cache:', error);
+      console.log('Error in auto-download:', error);
+    }
+  };
+
+  const handleDownloadModelsAuto = async () => {
+    if (downloading) return;
+    
+    setDownloading(true);
+    setModelStatus('Starting automatic download from S3...');
+    
+    try {
+      const totalSize = getTotalDownloadSize();
+      const sizeGB = (totalSize / 1024 / 1024 / 1024).toFixed(2);
+      
+      console.log(`📦 Starting download of ${sizeGB} GB models...`);
+      
+      await downloadAllModels((modelName, progress) => {
+        // Ensure percentage is valid (0-100)
+        const validPercentage = Math.max(0, Math.min(100, progress.percentage || 0));
+        
+        setDownloadProgress({
+          model: modelName,
+          percentage: validPercentage,
+        });
+        
+        const loadedMB = (progress.loaded / 1024 / 1024).toFixed(1);
+        const totalMB = progress.total > 0 ? (progress.total / 1024 / 1024).toFixed(1) : '?';
+        
+        let status: string;
+        if (progress.total > 0) {
+          status = `Downloading ${modelName}: ${validPercentage.toFixed(1)}% (${loadedMB}MB / ${totalMB}MB)`;
+        } else {
+          status = `Downloading ${modelName}: ${loadedMB}MB (size unknown)`;
+        }
+        
+        setModelStatus(status);
+        console.log(`📥 ${status}`);
+      });
+      
+      setModelStatus('✅ Download complete! Loading models...');
+      setDownloadProgress(null);
+      console.log('✅ All models downloaded successfully');
+      
+      // Reload models after download
+      await checkLocalAvailability();
+    } catch (error: any) {
+      console.error('❌ Download error:', error);
+      setModelStatus(`❌ Download failed: ${error.message}`);
+      Alert.alert(
+        'Download Error', 
+        `Failed to download models:\n\n${error.message}\n\nPlease check:\n- Internet connection\n- S3 bucket is accessible\n- Files exist in S3`
+      );
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -119,13 +182,26 @@ export default function App() {
                 setModelStatus('Starting download from S3...');
                 
                 await downloadAllModels((modelName, progress) => {
+                  // Ensure percentage is valid (0-100)
+                  const validPercentage = Math.max(0, Math.min(100, progress.percentage || 0));
+                  
                   setDownloadProgress({
                     model: modelName,
-                    percentage: progress.percentage,
+                    percentage: validPercentage,
                   });
+                  
                   const loadedMB = (progress.loaded / 1024 / 1024).toFixed(1);
-                  const totalMB = (progress.total / 1024 / 1024).toFixed(1);
-                  setModelStatus(`Downloading ${modelName}: ${progress.percentage.toFixed(1)}% (${loadedMB}MB / ${totalMB}MB)`);
+                  const totalMB = progress.total > 0 ? (progress.total / 1024 / 1024).toFixed(1) : '?';
+                  
+                  let status: string;
+                  if (progress.total > 0) {
+                    status = `Downloading ${modelName}: ${validPercentage.toFixed(1)}% (${loadedMB}MB / ${totalMB}MB)`;
+                  } else {
+                    status = `Downloading ${modelName}: ${loadedMB}MB (size unknown)`;
+                  }
+                  
+                  setModelStatus(status);
+                  console.log(`📥 ${status}`);
                 });
                 
                 setModelStatus('✅ Download complete! Loading models...');
@@ -228,7 +304,7 @@ export default function App() {
                 </View>
               </View>
             )}
-            {!modelLoading && modelStatus.includes('Download required') && (
+            {!modelLoading && !downloading && localAvailable && (modelStatus.includes('Download') || modelStatus.includes('not cached') || modelStatus.includes('Ready to download')) && (
               <TouchableOpacity
                 style={[styles.button, styles.downloadButton]}
                 onPress={handleDownloadModels}

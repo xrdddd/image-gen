@@ -31,26 +31,33 @@ echo "Option 1: Upload as tar.gz archives (Recommended)"
 echo "This creates compressed archives for faster downloads."
 echo ""
 
-read -p "Create and upload tar.gz archives? (Y/n): " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    cd "$MODELS_DIR"
-    
-    for dir in *.mlmodelc; do
-        if [ -d "$dir" ]; then
-            echo "📦 Creating archive: ${dir}.tar.gz"
-            tar -czf "${dir}.tar.gz" "$dir"
-            
+echo ""
+echo "Creating tar.gz archives (REQUIRED for .mlmodelc directories)..."
+cd "$MODELS_DIR"
+
+for dir in *.mlmodelc; do
+    if [ -d "$dir" ]; then
+        echo "📦 Creating archive: ${dir}.tar.gz"
+        tar -czf "${dir}.tar.gz" "$dir"
+        
+        if [ -f "${dir}.tar.gz" ]; then
             echo "📤 Uploading: ${dir}.tar.gz"
             aws s3 cp "${dir}.tar.gz" "${S3_PATH}/${dir}.tar.gz"
             
-            # Clean up local tar.gz
-            rm "${dir}.tar.gz"
+            if [ $? -eq 0 ]; then
+                echo "   ✅ Uploaded successfully"
+                # Clean up local tar.gz
+                rm "${dir}.tar.gz"
+            else
+                echo "   ❌ Upload failed"
+            fi
+        else
+            echo "   ❌ Failed to create archive"
         fi
-    done
-    
-    cd - > /dev/null
-fi
+    fi
+done
+
+cd - > /dev/null
 
 # Upload tokenizer files
 echo ""

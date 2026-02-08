@@ -27,35 +27,41 @@ const MODEL_BASE_URL = process.env.EXPO_PUBLIC_MODEL_BASE_URL ||
   'https://image-gen-pd123.s3.eu-north-1.amazonaws.com/stable-diffusion';
 
 // Model components to download
+// IMPORTANT: .mlmodelc files are directories. S3 cannot serve directories directly.
+// You MUST upload them as tar.gz archives to S3, then download and extract them.
+// 
+// To upload: tar -czf TextEncoder.mlmodelc.tar.gz TextEncoder.mlmodelc/
+// Then upload the .tar.gz file to S3
 const MODEL_COMPONENTS: ModelDownloadInfo[] = [
   {
     name: 'TextEncoder.mlmodelc',
-    url: `${MODEL_BASE_URL}/TextEncoder.mlmodelc`,
-    size: 234.9 * 1024 * 1024, // 234.9 MB
+    // Try tar.gz first, fallback to directory (won't work but shows better error)
+    url: `${MODEL_BASE_URL}/TextEncoder.mlmodelc.tar.gz`,
+    size: 234.9 * 1024 * 1024, // 234.9 MB (uncompressed)
     required: true,
   },
   {
     name: 'UnetChunk1.mlmodelc',
-    url: `${MODEL_BASE_URL}/UnetChunk1.mlmodelc`,
-    size: 846.9 * 1024 * 1024, // 846.9 MB
+    url: `${MODEL_BASE_URL}/UnetChunk1.mlmodelc.tar.gz`,
+    size: 846.9 * 1024 * 1024, // 846.9 MB (uncompressed)
     required: true,
   },
   {
     name: 'UnetChunk2.mlmodelc',
-    url: `${MODEL_BASE_URL}/UnetChunk2.mlmodelc`,
-    size: 793.6 * 1024 * 1024, // 793.6 MB
+    url: `${MODEL_BASE_URL}/UnetChunk2.mlmodelc.tar.gz`,
+    size: 793.6 * 1024 * 1024, // 793.6 MB (uncompressed)
     required: true,
   },
   {
     name: 'VAEDecoder.mlmodelc',
-    url: `${MODEL_BASE_URL}/VAEDecoder.mlmodelc`,
-    size: 94.6 * 1024 * 1024, // 94.6 MB
+    url: `${MODEL_BASE_URL}/VAEDecoder.mlmodelc.tar.gz`,
+    size: 94.6 * 1024 * 1024, // 94.6 MB (uncompressed)
     required: true,
   },
   {
     name: 'SafetyChecker.mlmodelc',
-    url: `${MODEL_BASE_URL}/SafetyChecker.mlmodelc`,
-    size: 580.2 * 1024 * 1024, // 580.2 MB
+    url: `${MODEL_BASE_URL}/SafetyChecker.mlmodelc.tar.gz`,
+    size: 580.2 * 1024 * 1024, // 580.2 MB (uncompressed)
     required: false,
   },
   {
@@ -166,7 +172,9 @@ export async function downloadModel(
   const tempPath = `${downloadPath}.tmp`;
   
   try {
-    console.log(`📥 Downloading ${modelInfo.name} from ${modelInfo.url}...`);
+    console.log(`📥 Downloading ${modelInfo.name} from S3...`);
+    console.log(`   URL: ${modelInfo.url}`);
+    console.log(`   Expected size: ${(modelInfo.size / 1024 / 1024).toFixed(2)} MB`);
     
     // Start download with progress tracking
     const downloadResumable = FileSystem.createDownloadResumable(
@@ -174,13 +182,43 @@ export async function downloadModel(
       tempPath,
       {},
       (downloadProgress) => {
+        const loaded = downloadProgress.totalBytesWritten || 0;
+        const expectedTotal = downloadProgress.totalBytesExpectedToWrite;
+        
+        // Use expected total if valid, otherwise use model info size, otherwise calculate from loaded
+        let total = modelInfo.size;
+        if (expectedTotal && expectedTotal > 0) {
+          total = expectedTotal;
+        } else if (total <= 0) {
+          // If we don't know the total, estimate based on loaded bytes (assume we're at least 1% done)
+          total = Math.max(loaded * 100, modelInfo.size);
+        }
+        
+        // Calculate percentage safely
+        let percentage = 0;
+        if (total > 0 && loaded > 0) {
+          percentage = Math.min((loaded / total) * 100, 100);
+        } else if (loaded > 0) {
+          // If we have loaded bytes but no total, show indeterminate progress
+          percentage = Math.min((loaded / modelInfo.size) * 100, 99); // Cap at 99% if total unknown
+        }
+        
         const progress: DownloadProgress = {
-          loaded: downloadProgress.totalBytesWritten,
-          total: downloadProgress.totalBytesExpectedToWrite || modelInfo.size,
-          percentage: downloadProgress.totalBytesExpectedToWrite
-            ? (downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite) * 100
-            : 0,
+          loaded: loaded,
+          total: total,
+          percentage: percentage,
         };
+        
+        // Log progress every 10% or when we have meaningful data
+        if (percentage > 0 && (Math.floor(percentage) % 10 === 0 || loaded > 0)) {
+          const loadedMB = (loaded / 1024 / 1024).toFixed(1);
+          const totalMB = total > 0 ? (total / 1024 / 1024).toFixed(1) : '?';
+          if (total > 0) {
+            console.log(`   ${modelInfo.name}: ${percentage.toFixed(1)}% (${loadedMB}MB / ${totalMB}MB)`);
+          } else {
+            console.log(`   ${modelInfo.name}: ${loadedMB}MB downloaded (total size unknown)`);
+          }
+        }
         
         if (onProgress) {
           onProgress(progress);
@@ -200,27 +238,88 @@ export async function downloadModel(
       throw new Error(`Downloaded file not found: ${tempPath}`);
     }
     
-    // Handle .mlmodelc directories
+    // Verify file size is reasonable (not 0 or suspiciously small)
+    const fileSize = tempInfo.size || 0;
+    console.log(`   Downloaded: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+    
+    // Check if it's an HTML error page or directory listing (common S3 issue)
+    if (fileSize > 0 && fileSize < 10000) {
+      try {
+        const content = await FileSystem.readAsStringAsync(tempPath, { 
+          encoding: FileSystem.EncodingType.UTF8, 
+          length: 1000 
+        });
+        if (content.includes('<html') || content.includes('<HTML') || content.includes('<?xml') || content.includes('ListBucketResult')) {
+          throw new Error(
+            `S3 returned HTML/XML instead of file. This usually means:\n` +
+            `1. The URL points to a directory (${modelInfo.name} is a directory, not a file)\n` +
+            `2. S3 is serving a directory listing or error page\n` +
+            `3. Solution: Upload ${modelInfo.name} as a tar.gz archive to S3\n` +
+            `   URL tried: ${modelInfo.url}`
+          );
+        }
+      } catch (readError: any) {
+        // If error is our custom error, re-throw it
+        if (readError.message && readError.message.includes('S3 returned HTML')) {
+          throw readError;
+        }
+        // Otherwise, it might be binary data which is fine
+      }
+    }
+    
+    if (fileSize === 0 && modelInfo.size > 1024) {
+      throw new Error(
+        `Downloaded file is 0 bytes but expected ${(modelInfo.size / 1024 / 1024).toFixed(2)} MB.\n` +
+        `This usually means:\n` +
+        `1. The file doesn't exist at: ${modelInfo.url}\n` +
+        `2. Or ${modelInfo.name} is a directory and needs to be uploaded as tar.gz\n` +
+        `3. Check S3 bucket and upload files correctly`
+      );
+    }
+    
+    // Warn if file size is much smaller than expected
+    if (fileSize > 0 && modelInfo.size > 0 && fileSize < modelInfo.size * 0.1) {
+      console.warn(`⚠️ Warning: Downloaded file is much smaller than expected. Expected: ${(modelInfo.size / 1024 / 1024).toFixed(2)} MB, Got: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+    }
+    
+    // Handle .mlmodelc directories (downloaded as tar.gz)
     if (modelInfo.name.endsWith('.mlmodelc')) {
-      // .mlmodelc is a directory structure
-      // If S3 serves it as a single file (tar/zip), we'd need to extract it
-      // For now, assume S3 serves the directory structure directly or as a downloadable directory
+      // Check if we downloaded a tar.gz file
+      const isTarGz = tempPath.endsWith('.tar.gz') || modelInfo.url.endsWith('.tar.gz');
       
-      // Try to move/copy the downloaded content
-      // Note: expo-file-system doesn't support directory operations well
-      // We may need to handle this differently based on how S3 serves the files
-      
-      // For directories, we might need to download individual files
-      // Or use a different approach
-      
-      // Move temp to final location
-      await FileSystem.moveAsync({
-        from: tempPath,
-        to: downloadPath,
-      });
-      
-      // If it's actually a directory listing HTML, we'll need to parse and download files
-      // For now, assume it's a downloadable directory or archive
+      if (isTarGz) {
+        // We downloaded a tar.gz archive - need to extract it
+        // Note: expo-file-system doesn't support tar.gz extraction natively
+        // For now, we'll move it and note that extraction is needed
+        // TODO: Add tar.gz extraction using a native module or library
+        
+        console.log(`   Note: ${modelInfo.name} downloaded as tar.gz archive`);
+        console.log(`   Extraction needed - currently not implemented`);
+        console.log(`   File saved at: ${tempPath}`);
+        
+        // Move tar.gz to final location (with .tar.gz extension)
+        const tarGzPath = `${downloadPath}.tar.gz`;
+        await FileSystem.moveAsync({
+          from: tempPath,
+          to: tarGzPath,
+        });
+        
+        // For now, throw an error explaining that extraction is needed
+        throw new Error(
+          `Downloaded ${modelInfo.name} as tar.gz archive, but extraction is not yet implemented.\n` +
+          `The tar.gz file is saved at: ${tarGzPath}\n\n` +
+          `To fix this:\n` +
+          `1. Install a tar extraction library (e.g., react-native-zip-archive)\n` +
+          `2. Or use a native module to extract tar.gz\n` +
+          `3. Or upload individual files from the directory to S3`
+        );
+      } else {
+        // Not tar.gz - try to move as-is (might be directory or file)
+        await FileSystem.moveAsync({
+          from: tempPath,
+          to: downloadPath,
+        });
+      }
     } else {
       // Regular file (vocab.json, merges.txt)
       await FileSystem.moveAsync({
@@ -229,7 +328,23 @@ export async function downloadModel(
       });
     }
     
-    console.log(`✅ Downloaded ${modelInfo.name}`);
+    // Verify final file
+    const finalInfo = await FileSystem.getInfoAsync(downloadPath);
+    if (finalInfo.exists) {
+      const finalSize = finalInfo.size || 0;
+      console.log(`✅ Downloaded ${modelInfo.name}`);
+      console.log(`   Path: ${downloadPath}`);
+      console.log(`   Size: ${(finalSize / 1024 / 1024).toFixed(2)} MB`);
+      console.log(`   Type: ${finalInfo.isDirectory ? 'Directory' : 'File'}`);
+      
+      // Final verification - file should have content
+      if (finalSize === 0 && modelInfo.size > 1024) {
+        throw new Error(`Downloaded file ${modelInfo.name} is 0 bytes. The file may not exist at URL: ${modelInfo.url}`);
+      }
+    } else {
+      throw new Error(`Final file not found at ${downloadPath} after download`);
+    }
+    
     return downloadPath;
     
   } catch (error: any) {
@@ -265,11 +380,13 @@ export async function downloadAllModels(
     }
     
     try {
-      await downloadModel(model, (progress) => {
+      console.log(`📥 Starting download: ${model.name} (${(model.size / 1024 / 1024).toFixed(2)} MB)`);
+      const downloadedPath = await downloadModel(model, (progress) => {
         if (onProgress) {
           onProgress(model.name, progress);
         }
       });
+      console.log(`✅ Completed: ${model.name} -> ${downloadedPath}`);
     } catch (error: any) {
       console.error(`❌ Failed to download ${model.name}:`, error);
       throw error;

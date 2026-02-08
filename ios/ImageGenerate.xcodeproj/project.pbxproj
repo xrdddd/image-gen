@@ -15,6 +15,8 @@
 		B18059E884C0ABDD17F3DC3D /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAC715A2D49A985799AEE119 /* ExpoModulesProvider.swift */; };
 		B983DA036DDB481ABD478751 /* noop-file.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D121031CA56438184E61EDD /* noop-file.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		F5DD5EC82F3845C800E94AC0 /* ImageGenerationModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F5DD5EC62F3845C800E94AC0 /* ImageGenerationModule.m */; };
+		F5DD5EC92F3845C800E94AC0 /* ImageGenerationModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5DD5EC72F3845C800E94AC0 /* ImageGenerationModule.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +34,8 @@
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F5DD5EA02F382DCC00E94AC0 /* ImageGenerate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ImageGenerate.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F5DD5EC62F3845C800E94AC0 /* ImageGenerationModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ImageGenerationModule.m; path = ImageGenerate/ImageGenerationModule.m; sourceTree = "<group>"; };
+		F5DD5EC72F3845C800E94AC0 /* ImageGenerationModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ImageGenerationModule.swift; path = ImageGenerate/ImageGenerationModule.swift; sourceTree = "<group>"; };
 		FAC715A2D49A985799AEE119 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-ImageGenerate/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -50,6 +54,8 @@
 		13B07FAE1A68108700A75B9A /* ImageGenerate */ = {
 			isa = PBXGroup;
 			children = (
+				F5DD5EC62F3845C800E94AC0 /* ImageGenerationModule.m */,
+				F5DD5EC72F3845C800E94AC0 /* ImageGenerationModule.swift */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FAF1A68108700A75B9A /* AppDelegate.h */,
 				13B07FB01A68108700A75B9A /* AppDelegate.mm */,
@@ -315,6 +321,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F5DD5EC82F3845C800E94AC0 /* ImageGenerationModule.m in Sources */,
+				F5DD5EC92F3845C800E94AC0 /* ImageGenerationModule.swift in Sources */,
 				13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */,
 				13B07FC11A68108700A75B9A /* main.m in Sources */,
 				B18059E884C0ABDD17F3DC3D /* ExpoModulesProvider.swift in Sources */,
@@ -342,7 +350,7 @@
 					"FB_SONARKIT_ENABLED=1",
 				);
 				INFOPLIST_FILE = ImageGenerate/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -377,7 +385,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 63G6XMX2SK;
 				INFOPLIST_FILE = ImageGenerate/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

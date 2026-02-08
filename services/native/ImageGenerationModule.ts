@@ -20,6 +20,13 @@ interface ImageGenerationModuleInterface {
 // Get the native module
 const { ImageGenerationModule } = NativeModules;
 
+// Debug: Log available modules
+if (__DEV__) {
+  console.log('🔍 Available native modules:', Object.keys(NativeModules));
+  console.log('🔍 ImageGenerationModule:', ImageGenerationModule);
+  console.log('🔍 Platform:', Platform.OS);
+}
+
 export const ImageGenerationModuleNative: ImageGenerationModuleInterface | null =
   Platform.OS === 'ios' && ImageGenerationModule
     ? ImageGenerationModule
