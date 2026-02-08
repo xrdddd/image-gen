@@ -233,4 +233,129 @@ class ImageGenerationModule: NSObject {
       rejecter("NO_PATH", "Model path not set", nil)
     }
   }
+  
+  /**
+   * Check if a model file exists in bundle or Documents directory
+   * Returns: "bundle", "documents", or "none"
+   */
+  @objc
+  func checkModelLocation(_ modelName: String, resolver: @escaping RCTPromiseResolveBlock, rejecter: @escaping RCTPromiseRejectBlock) {
+    print("🔍 Checking location for: \(modelName)")
+    
+    // Check bundle first - models are in ios/ImageGenerate/model/ directory
+    // Try multiple possible bundle paths
+    var bundlePaths: [String] = []
+    
+    // Path 1: Direct resource path (ImageGenerate/model/)
+    if let resourcePath = Bundle.main.resourcePath {
+      let path1 = (resourcePath as NSString).appendingPathComponent("ImageGenerate/model/\(modelName)")
+      bundlePaths.append(path1)
+      print("  📍 Checking bundle path 1: \(path1)")
+    }
+    
+    // Path 2: Using Bundle.main.path(forResource:ofType:inDirectory:)
+    // For .mlmodelc directories, try different approaches
+    if modelName.hasSuffix(".mlmodelc") {
+      let modelBaseName = (modelName as NSString).deletingPathExtension
+      if let bundlePath = Bundle.main.path(forResource: modelBaseName, ofType: "mlmodelc", inDirectory: "ImageGenerate/model") {
+        bundlePaths.append(bundlePath)
+        print("  📍 Checking bundle path 2: \(bundlePath)")
+      }
+      // Also try without directory
+      if let bundlePath = Bundle.main.path(forResource: modelBaseName, ofType: "mlmodelc") {
+        bundlePaths.append(bundlePath)
+        print("  📍 Checking bundle path 3: \(bundlePath)")
+      }
+    } else {
+      // For files like vocab.json, merges.txt
+      if let bundlePath = Bundle.main.path(forResource: modelName, ofType: nil, inDirectory: "ImageGenerate/model") {
+        bundlePaths.append(bundlePath)
+        print("  📍 Checking bundle path 2: \(bundlePath)")
+      }
+    }
+    
+    // Path 3: Check if model directory exists directly in resource path (model/)
+    // This matches the old resolveModelPath logic which checked "model/" not "ImageGenerate/model/"
+    if let bundlePath = Bundle.main.resourcePath {
+      let modelDir = (bundlePath as NSString).appendingPathComponent("model/\(modelName)")
+      bundlePaths.append(modelDir)
+      print("  📍 Checking bundle path 4: \(modelDir)")
+    }
+    
+    // Path 4: Check ImageGenerate/model/ directly
+    if let bundlePath = Bundle.main.resourcePath {
+      let modelDir = (bundlePath as NSString).appendingPathComponent("ImageGenerate/model/\(modelName)")
+      bundlePaths.append(modelDir)
+      print("  📍 Checking bundle path 5: \(modelDir)")
+    }
+    
+    // Path 5: List all files in bundle to debug (only for first model check)
+    if modelName == "TextEncoder.mlmodelc" {
+      if let resourcePath = Bundle.main.resourcePath {
+        print("  🔍 Bundle resource path: \(resourcePath)")
+        // Try to list model directory
+        let modelDir = (resourcePath as NSString).appendingPathComponent("model")
+        if FileManager.default.fileExists(atPath: modelDir) {
+          if let contents = try? FileManager.default.contentsOfDirectory(atPath: modelDir) {
+            print("  🔍 Contents of bundle/model/: \(contents.prefix(10))")
+          }
+        }
+        let imageGenModelDir = (resourcePath as NSString).appendingPathComponent("ImageGenerate/model")
+        if FileManager.default.fileExists(atPath: imageGenModelDir) {
+          if let contents = try? FileManager.default.contentsOfDirectory(atPath: imageGenModelDir) {
+            print("  🔍 Contents of bundle/ImageGenerate/model/: \(contents.prefix(10))")
+          }
+        }
+      }
+    }
+    
+    // Check all possible bundle paths
+    for bundleModelPath in bundlePaths {
+      var isDirectory: ObjCBool = false
+      if FileManager.default.fileExists(atPath: bundleModelPath, isDirectory: &isDirectory) {
+        // For directories (.mlmodelc), check if not empty
+        if modelName.hasSuffix(".mlmodelc") && isDirectory.boolValue {
+          if let contents = try? FileManager.default.contentsOfDirectory(atPath: bundleModelPath),
+             !contents.isEmpty {
+            print("✅ \(modelName) found in bundle at: \(bundleModelPath)")
+            resolver("bundle")
+            return
+          }
+        } else if !modelName.hasSuffix(".mlmodelc") {
+          // Regular file (vocab.json, merges.txt)
+          print("✅ \(modelName) found in bundle at: \(bundleModelPath)")
+          resolver("bundle")
+          return
+        }
+      }
+    }
+    
+    print("  ❌ \(modelName) not found in bundle")
+    
+    // Check Documents directory
+    let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let cachedModelPath = documentsPath.appendingPathComponent("models/\(modelName)")
+    print("  📍 Checking Documents path: \(cachedModelPath.path)")
+    
+    var isDirectory: ObjCBool = false
+    if FileManager.default.fileExists(atPath: cachedModelPath.path, isDirectory: &isDirectory) {
+      // For directories (.mlmodelc), check if not empty
+      if modelName.hasSuffix(".mlmodelc") && isDirectory.boolValue {
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: cachedModelPath.path),
+           !contents.isEmpty {
+          print("✅ \(modelName) found in Documents at: \(cachedModelPath.path)")
+          resolver("documents")
+          return
+        }
+      } else if !modelName.hasSuffix(".mlmodelc") {
+        print("✅ \(modelName) found in Documents at: \(cachedModelPath.path)")
+        resolver("documents")
+        return
+      }
+    }
+    
+    // Not found in either location
+    print("  ❌ \(modelName) not found in bundle or Documents - needs download")
+    resolver("none")
+  }
 }

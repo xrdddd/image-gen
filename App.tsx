@@ -48,34 +48,39 @@ export default function App() {
       // Wait a bit for app to initialize
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // First, try to load models from bundle/cache
-      // This will check bundle first, then cache
-      try {
-        const loaded = await preloadModel();
-        if (loaded) {
-          console.log('✅ Models loaded from bundle or cache');
-          setModelStatus('Models loaded from bundle or cache');
-          return; // Models are available, no need to download
-        }
-      } catch (error) {
-        console.log('Models not loaded from bundle/cache:', error);
-      }
-      
-      // If models couldn't be loaded, check if they're in cache
-      const allCached = await areAllModelsCached();
-      
-      if (!allCached && localAvailable) {
-        // Models not cached and not in bundle - auto-download
-        console.log('📥 Models not found in bundle or cache. Starting automatic download...');
-        setModelStatus('Preparing automatic download...');
-        
-        // Start download automatically
-        await handleDownloadModelsAuto();
-      } else if (allCached) {
-        console.log('✅ All models are cached');
-      } else if (!localAvailable) {
+      if (!localAvailable) {
         console.log('⚠️ Native module not available, skipping auto-download');
+        return;
       }
+      
+      // Check which models need downloading (not in bundle or documents)
+      const { getModelsToDownload } = require('./services/modelDownloadService');
+      const modelsToDownload = await getModelsToDownload();
+      
+      if (modelsToDownload.length === 0) {
+        // All models available in bundle or documents - try to load them
+        console.log('✅ All models available in bundle or Documents directory');
+        try {
+          const loaded = await preloadModel();
+          if (loaded) {
+            setModelStatus('✅ Models loaded from bundle or cache');
+            console.log('✅ Models loaded successfully');
+          } else {
+            setModelStatus('⚠️ Models found but failed to load');
+          }
+        } catch (error) {
+          console.log('Error loading models:', error);
+          setModelStatus('⚠️ Error loading models');
+        }
+        return;
+      }
+      
+      // Some models are missing - auto-download them
+      console.log(`📥 ${modelsToDownload.length} models need downloading: ${modelsToDownload.map(m => m.name).join(', ')}`);
+      setModelStatus(`Preparing to download ${modelsToDownload.length} missing models...`);
+      
+      // Start download automatically
+      await handleDownloadModelsAuto();
     } catch (error) {
       console.log('Error in auto-download:', error);
     }

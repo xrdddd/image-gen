@@ -118,33 +118,69 @@ export async function isModelCached(modelName: string): Promise<boolean> {
 /**
  * Check if all required models are cached OR available in bundle
  * 
- * Note: This function checks Documents directory for cached models.
- * Models in the bundle are handled by the native module's resolveModelPath,
- * which checks bundle first before cache. So if models are in bundle,
- * they will be found by the native module even if not in Documents directory.
- * 
- * To prevent unnecessary S3 downloads when models are in bundle:
- * - Try loading models first (which checks bundle)
- * - Only download if loading fails
+ * This function checks both bundle and Documents directory for each model.
+ * Returns true only if ALL required models are found in either location.
  */
 export async function areAllModelsCached(): Promise<boolean> {
   const requiredModels = MODEL_COMPONENTS.filter(m => m.required);
   
-  // Check if models are in Documents directory (downloaded/cached)
   for (const model of requiredModels) {
-    const isCached = await isModelCached(model.name);
-    if (!isCached) {
-      // Model not in Documents directory
-      // It might be in bundle, but we can't check bundle from JS
-      // The native module will check bundle when loading
-      // Return false here to indicate not in cache
-      // The app should try loading first (which checks bundle) before downloading
+    const location = await checkModelLocation(model.name);
+    if (location === 'none') {
+      // Model not found in bundle or Documents - needs download
       return false;
     }
   }
   
-  // All models found in Documents directory
+  // All models found in either bundle or Documents
   return true;
+}
+
+/**
+ * Check where a model is located: 'bundle', 'documents', or 'none'
+ * Uses native module to check bundle (which JS can't access directly)
+ */
+async function checkModelLocation(modelName: string): Promise<'bundle' | 'documents' | 'none'> {
+  try {
+    // Try to use native module to check bundle
+    const { ImageGenerationModuleNative } = require('./native/ImageGenerationModule');
+    if (ImageGenerationModuleNative && ImageGenerationModuleNative.checkModelLocation) {
+      const location = await ImageGenerationModuleNative.checkModelLocation(modelName);
+      console.log(`📍 ${modelName} location: ${location}`);
+      return location;
+    } else {
+      console.log(`⚠️ Native module or checkModelLocation method not available for ${modelName}`);
+    }
+  } catch (error: any) {
+    console.log(`❌ Error checking location for ${modelName}:`, error?.message || error);
+  }
+  
+  // Fallback: only check Documents (can't check bundle from JS)
+  const isCached = await isModelCached(modelName);
+  const fallbackLocation = isCached ? 'documents' : 'none';
+  console.log(`📍 ${modelName} fallback location: ${fallbackLocation}`);
+  return fallbackLocation;
+}
+
+/**
+ * Get list of models that need to be downloaded
+ * Returns models that are neither in bundle nor in Documents
+ */
+export async function getModelsToDownload(): Promise<ModelDownloadInfo[]> {
+  const requiredModels = MODEL_COMPONENTS.filter(m => m.required);
+  const modelsToDownload: ModelDownloadInfo[] = [];
+  
+  for (const model of requiredModels) {
+    const location = await checkModelLocation(model.name);
+    if (location === 'none') {
+      // Model not found in bundle or Documents - needs download
+      modelsToDownload.push(model);
+    } else {
+      console.log(`✓ ${model.name} found in ${location}, skipping download`);
+    }
+  }
+  
+  return modelsToDownload;
 }
 
 /**
@@ -378,22 +414,31 @@ export async function downloadModel(
 
 /**
  * Download all required models
+ * Only downloads models that are neither in bundle nor in Documents directory
+ * 
+ * Logic:
+ * 1. Check each required model location (bundle, documents, or none)
+ * 2. Only download models that are "none" (not in bundle and not in documents)
+ * 3. After download, models will be loaded from bundle first, then documents
  */
 export async function downloadAllModels(
   onProgress?: (modelName: string, progress: DownloadProgress) => void
 ): Promise<void> {
-  const requiredModels = MODEL_COMPONENTS.filter(m => m.required);
-  const totalSize = requiredModels.reduce((sum, m) => sum + m.size, 0);
+  // Get list of models that need downloading (not in bundle or documents)
+  const modelsToDownload = await getModelsToDownload();
   
-  console.log(`📦 Downloading ${requiredModels.length} models (${(totalSize / 1024 / 1024 / 1024).toFixed(2)} GB)...`);
+  if (modelsToDownload.length === 0) {
+    console.log('✅ All required models are available in bundle or Documents directory - no download needed');
+    return;
+  }
   
-  for (const model of requiredModels) {
-    // Check if already cached
-    const isCached = await isModelCached(model.name);
-    if (isCached) {
-      console.log(`✓ ${model.name} already cached, skipping...`);
-      continue;
-    }
+  // Calculate total size
+  const totalSize = modelsToDownload.reduce((sum, m) => sum + m.size, 0);
+  
+  console.log(`📦 Downloading ${modelsToDownload.length} missing models (${(totalSize / 1024 / 1024 / 1024).toFixed(2)} GB)...`);
+  console.log(`   Models to download: ${modelsToDownload.map(m => m.name).join(', ')}`);
+  
+  for (const model of modelsToDownload) {
     
     try {
       console.log(`📥 Starting download: ${model.name} (${(model.size / 1024 / 1024).toFixed(2)} MB)`);
