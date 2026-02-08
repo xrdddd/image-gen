@@ -34,7 +34,10 @@ class ImageGenerationModule: NSObject {
         if cleanPath.hasPrefix("file://") {
           cleanPath = String(cleanPath.dropFirst(7))  // Remove "file://" prefix
         }
-        let baseURL = URL(fileURLWithPath: cleanPath)
+        
+        // Consolidate models before loading (copy missing models from bundle to Documents)
+        let consolidatedPath = try self.consolidateModels(targetPath: cleanPath)
+        let baseURL = URL(fileURLWithPath: consolidatedPath)
         self.modelsBasePath = baseURL.path
         
         print("📦 Loading Stable Diffusion pipeline from: \(baseURL.path)")
@@ -388,8 +391,9 @@ class ImageGenerationModule: NSObject {
         let outputDir = tarGzURL.deletingPathExtension().deletingPathExtension() // Remove .tar.gz
         let outputPath = outputDir.path
         
-        // Create output directory
-        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true, attributes: nil)
+        // Create a temporary directory for extraction first
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true, attributes: nil)
         
         // Read tar.gz file
         let tarGzData = try Data(contentsOf: tarGzURL)
@@ -399,8 +403,53 @@ class ImageGenerationModule: NSObject {
         let decompressedData = try self.decompressGzip(data: tarGzData)
         print("   Decompressed size: \(decompressedData.count) bytes")
         
-        // Extract tar archive
-        try self.extractTar(data: decompressedData, to: outputDir)
+        // Extract tar archive to temp directory first
+        try self.extractTar(data: decompressedData, to: tempDir)
+        
+        // Check if tar contains a single top-level directory with the same name as output
+        let tempContents = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
+        
+        if tempContents.count == 1 {
+          let topLevelItem = tempDir.appendingPathComponent(tempContents[0])
+          var isDirectory: ObjCBool = false
+          if FileManager.default.fileExists(atPath: topLevelItem.path, isDirectory: &isDirectory),
+             isDirectory.boolValue {
+            // Check if the directory name matches the expected output name
+            let expectedName = outputDir.lastPathComponent
+            if topLevelItem.lastPathComponent == expectedName {
+              // Tar contains a directory with the same name - extract its contents directly
+              print("   📁 Tar contains directory '\(expectedName)', extracting contents directly")
+              try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true, attributes: nil)
+              
+              let innerContents = try FileManager.default.contentsOfDirectory(atPath: topLevelItem.path)
+              for item in innerContents {
+                let sourceItem = topLevelItem.appendingPathComponent(item)
+                let destItem = outputDir.appendingPathComponent(item)
+                try FileManager.default.moveItem(at: sourceItem, to: destItem)
+              }
+              
+              // Clean up temp directory
+              try? FileManager.default.removeItem(at: tempDir)
+              
+              print("✅ Extracted to: \(outputPath)")
+              resolver(outputPath)
+              return
+            }
+          }
+        }
+        
+        // Otherwise, move everything from temp to output
+        // Create output directory
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true, attributes: nil)
+        
+        for item in tempContents {
+          let sourceItem = tempDir.appendingPathComponent(item)
+          let destItem = outputDir.appendingPathComponent(item)
+          try FileManager.default.moveItem(at: sourceItem, to: destItem)
+        }
+        
+        // Clean up temp directory
+        try? FileManager.default.removeItem(at: tempDir)
         
         print("✅ Extracted to: \(outputPath)")
         resolver(outputPath)
@@ -532,6 +581,102 @@ class ImageGenerationModule: NSObject {
     }
     
     throw NSError(domain: "Compression", code: Int(status.rawValue), userInfo: [NSLocalizedDescriptionKey: "Failed to decompress gzip data. Status: \(status.rawValue), Output size: \(result.count)"])
+  }
+  
+  /**
+   * Consolidate models: copy missing models from bundle to Documents directory
+   * This ensures all models are in one location for Apple's framework
+   * Returns the consolidated path (always Documents/models/)
+   */
+  private func consolidateModels(targetPath: String) throws -> String {
+    let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let consolidatedPath = documentsPath.appendingPathComponent("models")
+    
+    // Create consolidated directory if it doesn't exist
+    try FileManager.default.createDirectory(at: consolidatedPath, withIntermediateDirectories: true, attributes: nil)
+    
+    // Required model components
+    let requiredModels = ["TextEncoder.mlmodelc", "UnetChunk1.mlmodelc", "UnetChunk2.mlmodelc", "VAEDecoder.mlmodelc"]
+    let requiredFiles = ["vocab.json", "merges.txt"]
+    
+    // Check bundle path
+    var bundleModelPath: String? = nil
+    if let resourcePath = Bundle.main.resourcePath {
+      // Try ImageGenerate/model/ first
+      let path1 = (resourcePath as NSString).appendingPathComponent("ImageGenerate/model")
+      if FileManager.default.fileExists(atPath: path1) {
+        bundleModelPath = path1
+      } else {
+        // Try model/ directly
+        let path2 = (resourcePath as NSString).appendingPathComponent("model")
+        if FileManager.default.fileExists(atPath: path2) {
+          bundleModelPath = path2
+        }
+      }
+    }
+    
+    // Copy missing models from bundle to Documents
+    if let bundlePath = bundleModelPath {
+      for modelName in requiredModels {
+        let consolidatedModelPath = consolidatedPath.appendingPathComponent(modelName)
+        
+        // Skip if already exists in consolidated location
+        if FileManager.default.fileExists(atPath: consolidatedModelPath.path) {
+          print("✅ \(modelName) already in Documents")
+          continue
+        }
+        
+        // Check if exists in bundle
+        let bundleModelPath = (bundlePath as NSString).appendingPathComponent(modelName)
+        if FileManager.default.fileExists(atPath: bundleModelPath) {
+          // Copy from bundle to Documents
+          do {
+            try FileManager.default.copyItem(at: URL(fileURLWithPath: bundleModelPath), to: consolidatedModelPath)
+            print("📋 Copied \(modelName) from bundle to Documents")
+          } catch {
+            print("⚠️ Failed to copy \(modelName) from bundle: \(error.localizedDescription)")
+            // Continue - maybe it's in Documents already or will be downloaded
+          }
+        }
+      }
+      
+      // Copy missing files (vocab.json, merges.txt)
+      for fileName in requiredFiles {
+        let consolidatedFilePath = consolidatedPath.appendingPathComponent(fileName)
+        
+        // Skip if already exists
+        if FileManager.default.fileExists(atPath: consolidatedFilePath.path) {
+          continue
+        }
+        
+        // Check if exists in bundle
+        let bundleFilePath = (bundlePath as NSString).appendingPathComponent(fileName)
+        if FileManager.default.fileExists(atPath: bundleFilePath) {
+          do {
+            try FileManager.default.copyItem(at: URL(fileURLWithPath: bundleFilePath), to: consolidatedFilePath)
+            print("📋 Copied \(fileName) from bundle to Documents")
+          } catch {
+            print("⚠️ Failed to copy \(fileName) from bundle: \(error.localizedDescription)")
+          }
+        }
+      }
+    }
+    
+    // Verify all required models are present
+    var missingModels: [String] = []
+    for modelName in requiredModels {
+      let modelPath = consolidatedPath.appendingPathComponent(modelName)
+      if !FileManager.default.fileExists(atPath: modelPath.path) {
+        missingModels.append(modelName)
+      }
+    }
+    
+    if !missingModels.isEmpty {
+      throw NSError(domain: "ModelConsolidation", code: -1, userInfo: [NSLocalizedDescriptionKey: "Missing required models: \(missingModels.joined(separator: ", "))"])
+    }
+    
+    print("✅ Models consolidated to: \(consolidatedPath.path)")
+    return consolidatedPath.path
   }
   
   /**
