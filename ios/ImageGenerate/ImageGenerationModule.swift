@@ -47,9 +47,17 @@ class ImageGenerationModule: NSObject {
         // Load TextEncoder
         let textEncoderURL = baseURL.appendingPathComponent("TextEncoder.mlmodelc")
         if FileManager.default.fileExists(atPath: textEncoderURL.path) {
-          let compiledTextEncoder = try MLModel.compileModel(at: textEncoderURL)
-          self.textEncoder = try MLModel(contentsOf: compiledTextEncoder)
-          print("✅ TextEncoder loaded")
+          // Try loading directly first (for already-compiled models without Manifest.json)
+          do {
+            self.textEncoder = try MLModel(contentsOf: textEncoderURL)
+            print("✅ TextEncoder loaded directly")
+          } catch {
+            // If direct load fails, try compilation (requires Manifest.json)
+            print("⚠️ Direct load failed, trying compilation: \(error.localizedDescription)")
+            let compiledTextEncoder = try MLModel.compileModel(at: textEncoderURL)
+            self.textEncoder = try MLModel(contentsOf: compiledTextEncoder)
+            print("✅ TextEncoder loaded via compilation")
+          }
         } else {
           throw NSError(domain: "ImageGeneration", code: 1, userInfo: [NSLocalizedDescriptionKey: "TextEncoder.mlmodelc not found at \(textEncoderURL.path)"])
         }
@@ -60,11 +68,20 @@ class ImageGenerationModule: NSObject {
         
         if FileManager.default.fileExists(atPath: unetChunk1URL.path) && 
            FileManager.default.fileExists(atPath: unetChunk2URL.path) {
-          let compiledChunk1 = try MLModel.compileModel(at: unetChunk1URL)
-          let compiledChunk2 = try MLModel.compileModel(at: unetChunk2URL)
-          self.unetChunk1 = try MLModel(contentsOf: compiledChunk1)
-          self.unetChunk2 = try MLModel(contentsOf: compiledChunk2)
-          print("✅ Unet loaded (chunked: Chunk1 + Chunk2)")
+          // Try loading directly first
+          do {
+            self.unetChunk1 = try MLModel(contentsOf: unetChunk1URL)
+            self.unetChunk2 = try MLModel(contentsOf: unetChunk2URL)
+            print("✅ Unet loaded directly (chunked: Chunk1 + Chunk2)")
+          } catch {
+            // If direct load fails, try compilation
+            print("⚠️ Direct load failed, trying compilation: \(error.localizedDescription)")
+            let compiledChunk1 = try MLModel.compileModel(at: unetChunk1URL)
+            let compiledChunk2 = try MLModel.compileModel(at: unetChunk2URL)
+            self.unetChunk1 = try MLModel(contentsOf: compiledChunk1)
+            self.unetChunk2 = try MLModel(contentsOf: compiledChunk2)
+            print("✅ Unet loaded via compilation (chunked: Chunk1 + Chunk2)")
+          }
         } else {
           throw NSError(domain: "ImageGeneration", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unet chunks not found"])
         }
@@ -72,9 +89,17 @@ class ImageGenerationModule: NSObject {
         // Load VAE Decoder
         let vaeDecoderURL = baseURL.appendingPathComponent("VAEDecoder.mlmodelc")
         if FileManager.default.fileExists(atPath: vaeDecoderURL.path) {
-          let compiledVAE = try MLModel.compileModel(at: vaeDecoderURL)
-          self.vaeDecoder = try MLModel(contentsOf: compiledVAE)
-          print("✅ VAEDecoder loaded")
+          // Try loading directly first
+          do {
+            self.vaeDecoder = try MLModel(contentsOf: vaeDecoderURL)
+            print("✅ VAEDecoder loaded directly")
+          } catch {
+            // If direct load fails, try compilation
+            print("⚠️ Direct load failed, trying compilation: \(error.localizedDescription)")
+            let compiledVAE = try MLModel.compileModel(at: vaeDecoderURL)
+            self.vaeDecoder = try MLModel(contentsOf: compiledVAE)
+            print("✅ VAEDecoder loaded via compilation")
+          }
         } else {
           throw NSError(domain: "ImageGeneration", code: 1, userInfo: [NSLocalizedDescriptionKey: "VAEDecoder.mlmodelc not found"])
         }
@@ -82,9 +107,17 @@ class ImageGenerationModule: NSObject {
         // Load Safety Checker (optional)
         let safetyCheckerURL = baseURL.appendingPathComponent("SafetyChecker.mlmodelc")
         if FileManager.default.fileExists(atPath: safetyCheckerURL.path) {
-          let compiledSafety = try MLModel.compileModel(at: safetyCheckerURL)
-          self.safetyChecker = try MLModel(contentsOf: compiledSafety)
-          print("✅ SafetyChecker loaded")
+          // Try loading directly first
+          do {
+            self.safetyChecker = try MLModel(contentsOf: safetyCheckerURL)
+            print("✅ SafetyChecker loaded directly")
+          } catch {
+            // If direct load fails, try compilation
+            print("⚠️ Direct load failed, trying compilation: \(error.localizedDescription)")
+            let compiledSafety = try MLModel.compileModel(at: safetyCheckerURL)
+            self.safetyChecker = try MLModel(contentsOf: compiledSafety)
+            print("✅ SafetyChecker loaded via compilation")
+          }
         }
         
         // Load tokenizer files
@@ -162,14 +195,48 @@ class ImageGenerationModule: NSObject {
       }
     }
     
-    // Fallback: Try main bundle (for bundled assets)
-    if let bundlePath = Bundle.main.path(forResource: "models", ofType: nil, inDirectory: "assets") {
-      print("📁 Using bundled models from: \(bundlePath)")
-      return URL(fileURLWithPath: bundlePath)
-    }
-    
-    // Try assets/models in bundle
+    // Try bundle model directory (ios/ImageGenerate/model)
     if let bundlePath = Bundle.main.resourcePath {
+      // Check for model directory in bundle (ios/ImageGenerate/model)
+      let bundleModelPath = (bundlePath as NSString).appendingPathComponent("model")
+      if FileManager.default.fileExists(atPath: bundleModelPath) {
+        // FIRST: Check if .mlmodelc directories already exist (pre-extracted)
+        let textEncoderPath = (bundleModelPath as NSString).appendingPathComponent("TextEncoder.mlmodelc")
+        if FileManager.default.fileExists(atPath: textEncoderPath) {
+          print("📁 Found pre-extracted models in bundle: \(bundleModelPath)")
+          // Copy models to documents directory for use (bundle is read-only)
+          if let extractedPath = self.copyModelsFromBundle(from: bundleModelPath) {
+            print("📁 Using models from: \(extractedPath.path)")
+            return extractedPath
+          }
+          // If copy failed, try using bundle directly (may fail if bundle is read-only)
+          print("📁 Attempting to use bundled models directly: \(bundleModelPath)")
+          return URL(fileURLWithPath: bundleModelPath)
+        }
+        
+        // SECOND: Check if we have tar.gz files (need manual extraction)
+        let textEncoderTarGz = (bundleModelPath as NSString).appendingPathComponent("TextEncoder.mlmodelc.tar.gz")
+        if FileManager.default.fileExists(atPath: textEncoderTarGz) {
+          print("⚠️ Found tar.gz files in bundle but iOS cannot extract them automatically")
+          print("   Please extract tar.gz files manually before adding to Xcode:")
+          print("   cd ios/ImageGenerate/model")
+          print("   tar -xzf TextEncoder.mlmodelc.tar.gz")
+          print("   tar -xzf UnetChunk1.mlmodelc.tar.gz")
+          print("   tar -xzf UnetChunk2.mlmodelc.tar.gz")
+          print("   tar -xzf VAEDecoder.mlmodelc.tar.gz")
+          print("   Then add the extracted .mlmodelc directories to Xcode instead of tar.gz files")
+          // Still try to copy vocab.json and merges.txt if they exist
+          _ = self.copyModelsFromBundle(from: bundleModelPath)
+        }
+      }
+      
+      // Fallback: Try main bundle (for bundled assets)
+      if let assetsModelPath = Bundle.main.path(forResource: "models", ofType: nil, inDirectory: "assets") {
+        print("📁 Using bundled models from: \(assetsModelPath)")
+        return URL(fileURLWithPath: assetsModelPath)
+      }
+      
+      // Try assets/models in bundle
       let modelsPath = (bundlePath as NSString).appendingPathComponent("assets/models")
       if FileManager.default.fileExists(atPath: modelsPath) {
         print("📁 Using bundled models from: \(modelsPath)")
@@ -180,6 +247,221 @@ class ImageGenerationModule: NSObject {
     // Final fallback: documents directory
     print("📁 Using documents directory: \(documentsPath.appendingPathComponent(path).path)")
     return documentsPath.appendingPathComponent(path)
+  }
+  
+  /**
+   * Copy pre-extracted .mlmodelc directories from bundle to documents directory
+   * This function copies models from bundle (read-only) to Documents (writable)
+   */
+  private func copyModelsFromBundle(from bundlePath: String) -> URL? {
+    let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let extractedPath = documentsPath.appendingPathComponent("models")
+    
+    // Create models directory if it doesn't exist
+    try? FileManager.default.createDirectory(at: extractedPath, withIntermediateDirectories: true)
+    
+    let modelNames = ["TextEncoder", "UnetChunk1", "UnetChunk2", "VAEDecoder", "SafetyChecker"]
+    var allCopied = true
+    
+    for modelName in modelNames {
+      let bundleModelPath = (bundlePath as NSString).appendingPathComponent("\(modelName).mlmodelc")
+      let targetPath = extractedPath.appendingPathComponent("\(modelName).mlmodelc")
+      
+      // Skip if already copied
+      if FileManager.default.fileExists(atPath: targetPath.path) {
+        print("✅ \(modelName).mlmodelc already copied")
+        continue
+      }
+      
+      // Check if .mlmodelc directory exists in bundle
+      if FileManager.default.fileExists(atPath: bundleModelPath) {
+        // Check for Manifest.json (preferred) but don't require it
+        // Models can sometimes be loaded directly without Manifest.json
+        let manifestPath = (bundleModelPath as NSString).appendingPathComponent("Manifest.json")
+        let hasManifest = FileManager.default.fileExists(atPath: manifestPath)
+        
+        if !hasManifest {
+          print("⚠️ \(modelName).mlmodelc missing Manifest.json - will try direct load")
+        }
+        
+        // Copy directory from bundle to documents (recursive copy)
+        do {
+          // Remove target if it exists
+          if FileManager.default.fileExists(atPath: targetPath.path) {
+            try FileManager.default.removeItem(at: targetPath)
+          }
+          
+          // Copy the entire directory recursively
+          try FileManager.default.copyItem(at: URL(fileURLWithPath: bundleModelPath), to: targetPath)
+          
+          // Verify copy was successful (check for any key files, not just Manifest.json)
+          let metadataPath = targetPath.appendingPathComponent("metadata.json")
+          let modelMilPath = targetPath.appendingPathComponent("model.mil")
+          if FileManager.default.fileExists(atPath: metadataPath.path) || 
+             FileManager.default.fileExists(atPath: modelMilPath.path) {
+            if hasManifest {
+              print("✅ Copied \(modelName).mlmodelc from bundle (with Manifest.json)")
+            } else {
+              print("✅ Copied \(modelName).mlmodelc from bundle (no Manifest.json, will try direct load)")
+            }
+          } else {
+            print("⚠️ Copied \(modelName).mlmodelc but missing key files - copy may be incomplete")
+            if modelName != "SafetyChecker" {
+              allCopied = false
+            }
+          }
+        } catch {
+          print("❌ Failed to copy \(modelName).mlmodelc: \(error.localizedDescription)")
+          if modelName != "SafetyChecker" {
+            allCopied = false
+          }
+        }
+      } else if modelName != "SafetyChecker" {
+        // Required model not found
+        print("⚠️ \(modelName).mlmodelc not found in bundle")
+        allCopied = false
+      }
+    }
+    
+    // Also copy vocab.json and merges.txt if they exist
+    let vocabPath = (bundlePath as NSString).appendingPathComponent("vocab.json")
+    let mergesPath = (bundlePath as NSString).appendingPathComponent("merges.txt")
+    
+    if FileManager.default.fileExists(atPath: vocabPath) {
+      let targetVocab = extractedPath.appendingPathComponent("vocab.json")
+      do {
+        if FileManager.default.fileExists(atPath: targetVocab.path) {
+          try FileManager.default.removeItem(at: targetVocab)
+        }
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: vocabPath), to: targetVocab)
+        print("✅ Copied vocab.json")
+      } catch {
+        print("⚠️ Failed to copy vocab.json: \(error.localizedDescription)")
+      }
+    }
+    
+    if FileManager.default.fileExists(atPath: mergesPath) {
+      let targetMerges = extractedPath.appendingPathComponent("merges.txt")
+      do {
+        if FileManager.default.fileExists(atPath: targetMerges.path) {
+          try FileManager.default.removeItem(at: targetMerges)
+        }
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: mergesPath), to: targetMerges)
+        print("✅ Copied merges.txt")
+      } catch {
+        print("⚠️ Failed to copy merges.txt: \(error.localizedDescription)")
+      }
+    }
+    
+    return allCopied ? extractedPath : nil
+  }
+  
+  /**
+   * Extract tar.gz files from bundle to documents directory
+   * Note: iOS apps are sandboxed and cannot execute system commands.
+   * This function checks if .mlmodelc directories already exist, and if tar.gz files
+   * are found, it logs a message instructing the user to extract them manually.
+   * 
+   * For testing: Extract tar.gz files manually before adding to Xcode bundle.
+   */
+  private func extractTarGzFiles(from bundlePath: String) -> URL? {
+    let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let extractedPath = documentsPath.appendingPathComponent("models")
+    
+    // Create models directory if it doesn't exist
+    try? FileManager.default.createDirectory(at: extractedPath, withIntermediateDirectories: true)
+    
+    let modelNames = ["TextEncoder", "UnetChunk1", "UnetChunk2", "VAEDecoder", "SafetyChecker"]
+    var allExtracted = true
+    var needsExtraction = false
+    
+    for modelName in modelNames {
+      let tarGzPath = (bundlePath as NSString).appendingPathComponent("\(modelName).mlmodelc.tar.gz")
+      let targetPath = extractedPath.appendingPathComponent("\(modelName).mlmodelc")
+      
+      // Skip if already extracted
+      if FileManager.default.fileExists(atPath: targetPath.path) {
+        print("✅ \(modelName).mlmodelc already extracted")
+        continue
+      }
+      
+      // Check if tar.gz exists in bundle
+      if FileManager.default.fileExists(atPath: tarGzPath) {
+        needsExtraction = true
+        if modelName == "SafetyChecker" {
+          // SafetyChecker is optional, skip it
+          print("⚠️ \(modelName).mlmodelc.tar.gz found but SafetyChecker is optional, skipping")
+          continue
+        }
+        print("⚠️ \(modelName).mlmodelc.tar.gz found but cannot extract on iOS (sandboxed)")
+        print("   Please extract tar.gz files manually before adding to Xcode bundle")
+        print("   Or use pre-extracted .mlmodelc directories instead")
+        allExtracted = false
+      } else {
+        // Check if .mlmodelc directory exists in bundle (pre-extracted)
+        let bundleModelPath = (bundlePath as NSString).appendingPathComponent("\(modelName).mlmodelc")
+        if FileManager.default.fileExists(atPath: bundleModelPath) {
+          // Copy pre-extracted directory to documents
+          do {
+            let targetModelPath = extractedPath.appendingPathComponent("\(modelName).mlmodelc")
+            if FileManager.default.fileExists(atPath: targetModelPath.path) {
+              try FileManager.default.removeItem(at: targetModelPath)
+            }
+            try FileManager.default.copyItem(at: URL(fileURLWithPath: bundleModelPath), to: targetModelPath)
+            print("✅ Copied \(modelName).mlmodelc from bundle")
+          } catch {
+            print("❌ Failed to copy \(modelName).mlmodelc: \(error.localizedDescription)")
+            allExtracted = false
+          }
+        } else if modelName != "SafetyChecker" {
+          print("⚠️ \(modelName).mlmodelc not found in bundle")
+          allExtracted = false
+        }
+      }
+    }
+    
+    // Also copy vocab.json and merges.txt if they exist
+    let vocabPath = (bundlePath as NSString).appendingPathComponent("vocab.json")
+    let mergesPath = (bundlePath as NSString).appendingPathComponent("merges.txt")
+    
+    if FileManager.default.fileExists(atPath: vocabPath) {
+      let targetVocab = extractedPath.appendingPathComponent("vocab.json")
+      do {
+        if FileManager.default.fileExists(atPath: targetVocab.path) {
+          try FileManager.default.removeItem(at: targetVocab)
+        }
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: vocabPath), to: targetVocab)
+        print("✅ Copied vocab.json")
+      } catch {
+        print("⚠️ Failed to copy vocab.json: \(error.localizedDescription)")
+      }
+    }
+    
+    if FileManager.default.fileExists(atPath: mergesPath) {
+      let targetMerges = extractedPath.appendingPathComponent("merges.txt")
+      do {
+        if FileManager.default.fileExists(atPath: targetMerges.path) {
+          try FileManager.default.removeItem(at: targetMerges)
+        }
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: mergesPath), to: targetMerges)
+        print("✅ Copied merges.txt")
+      } catch {
+        print("⚠️ Failed to copy merges.txt: \(error.localizedDescription)")
+      }
+    }
+    
+    if needsExtraction {
+      print("⚠️ tar.gz files found but iOS cannot extract them automatically")
+      print("   Solution: Extract tar.gz files manually before adding to Xcode:")
+      print("   cd ios/ImageGenerate/model")
+      print("   tar -xzf TextEncoder.mlmodelc.tar.gz")
+      print("   tar -xzf UnetChunk1.mlmodelc.tar.gz")
+      print("   tar -xzf UnetChunk2.mlmodelc.tar.gz")
+      print("   tar -xzf VAEDecoder.mlmodelc.tar.gz")
+      print("   Then add the extracted .mlmodelc directories to Xcode instead of tar.gz files")
+    }
+    
+    return allExtracted ? extractedPath : nil
   }
   
   /**

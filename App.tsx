@@ -48,11 +48,25 @@ export default function App() {
       // Wait a bit for app to initialize
       await new Promise(resolve => setTimeout(resolve, 1000));
       
+      // First, try to load models from bundle/cache
+      // This will check bundle first, then cache
+      try {
+        const loaded = await preloadModel();
+        if (loaded) {
+          console.log('✅ Models loaded from bundle or cache');
+          setModelStatus('Models loaded from bundle or cache');
+          return; // Models are available, no need to download
+        }
+      } catch (error) {
+        console.log('Models not loaded from bundle/cache:', error);
+      }
+      
+      // If models couldn't be loaded, check if they're in cache
       const allCached = await areAllModelsCached();
       
       if (!allCached && localAvailable) {
-        // Models not cached - auto-download
-        console.log('📥 Models not cached. Starting automatic download...');
+        // Models not cached and not in bundle - auto-download
+        console.log('📥 Models not found in bundle or cache. Starting automatic download...');
         setModelStatus('Preparing automatic download...');
         
         // Start download automatically
@@ -122,26 +136,41 @@ export default function App() {
 
   const checkLocalAvailability = async () => {
     try {
+      setModelLoading(true);
       const available = await isLocalGenerationAvailable();
       setLocalAvailable(available);
       
       if (!available) {
         setModelStatus('Native module not available');
+        setModelLoading(false);
         return;
       }
       
-      // Check if models are cached
+      // Try to load models from bundle or cache first
+      // This checks bundle first (via native module), then cache
+      try {
+        const loaded = await preloadModel();
+        if (loaded) {
+          setModelStatus('✅ Models loaded from bundle or cache');
+          setModelLoading(false);
+          return; // Models loaded successfully
+        }
+      } catch (error: any) {
+        console.log('Models not loaded from bundle/cache:', error?.message || error);
+      }
+      
+      // If models couldn't be loaded, check if they're in Documents cache
       const allCached = await areAllModelsCached();
       
       if (!allCached) {
-        // Models need to be downloaded from S3
-        setModelStatus('Models not cached. Ready to download from S3.');
+        // Models not in bundle and not in cache - need to download from S3
+        setModelStatus('Models not found in bundle or cache. Ready to download from S3.');
         setModelLoading(false);
         // Don't auto-download - let user decide when to download
         return;
       }
       
-      // Models are cached, try to load them
+      // Models are cached in Documents, try to load them
       setModelLoading(true);
       setModelStatus('Loading models...');
       

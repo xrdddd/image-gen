@@ -138,9 +138,10 @@ async function getModelPath(): Promise<string> {
         const cacheDir = `${FileSystem.documentDirectory}models/`;
         return cacheDir;
       } else {
-        // Fallback: try bundled assets (for initial app or if download fails)
+        // Fallback: try bundled models (ios/ImageGenerate/model)
         // Native code will resolve this to the actual bundle path
-        return "assets/models";
+        // It will check: ios/ImageGenerate/model in bundle first
+        return "model";
       }
     } else {
       // Android: single ONNX file

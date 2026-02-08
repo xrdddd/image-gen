@@ -116,18 +116,34 @@ export async function isModelCached(modelName: string): Promise<boolean> {
 }
 
 /**
- * Check if all required models are cached
+ * Check if all required models are cached OR available in bundle
+ * 
+ * Note: This function checks Documents directory for cached models.
+ * Models in the bundle are handled by the native module's resolveModelPath,
+ * which checks bundle first before cache. So if models are in bundle,
+ * they will be found by the native module even if not in Documents directory.
+ * 
+ * To prevent unnecessary S3 downloads when models are in bundle:
+ * - Try loading models first (which checks bundle)
+ * - Only download if loading fails
  */
 export async function areAllModelsCached(): Promise<boolean> {
   const requiredModels = MODEL_COMPONENTS.filter(m => m.required);
   
+  // Check if models are in Documents directory (downloaded/cached)
   for (const model of requiredModels) {
     const isCached = await isModelCached(model.name);
     if (!isCached) {
+      // Model not in Documents directory
+      // It might be in bundle, but we can't check bundle from JS
+      // The native module will check bundle when loading
+      // Return false here to indicate not in cache
+      // The app should try loading first (which checks bundle) before downloading
       return false;
     }
   }
   
+  // All models found in Documents directory
   return true;
 }
 

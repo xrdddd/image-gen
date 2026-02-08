@@ -17,6 +17,7 @@
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		F5DD5EC82F3845C800E94AC0 /* ImageGenerationModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F5DD5EC62F3845C800E94AC0 /* ImageGenerationModule.m */; };
 		F5DD5EC92F3845C800E94AC0 /* ImageGenerationModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5DD5EC72F3845C800E94AC0 /* ImageGenerationModule.swift */; };
+		F5DD5ECF2F386BC700E94AC0 /* model in Resources */ = {isa = PBXBuildFile; fileRef = F5DD5ECE2F386BC700E94AC0 /* model */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +37,7 @@
 		F5DD5EA02F382DCC00E94AC0 /* ImageGenerate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ImageGenerate.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F5DD5EC62F3845C800E94AC0 /* ImageGenerationModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ImageGenerationModule.m; path = ImageGenerate/ImageGenerationModule.m; sourceTree = "<group>"; };
 		F5DD5EC72F3845C800E94AC0 /* ImageGenerationModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ImageGenerationModule.swift; path = ImageGenerate/ImageGenerationModule.swift; sourceTree = "<group>"; };
+		F5DD5ECE2F386BC700E94AC0 /* model */ = {isa = PBXFileReference; lastKnownFileType = folder; name = model; path = ImageGenerate/model; sourceTree = "<group>"; };
 		FAC715A2D49A985799AEE119 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-ImageGenerate/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -54,6 +56,7 @@
 		13B07FAE1A68108700A75B9A /* ImageGenerate */ = {
 			isa = PBXGroup;
 			children = (
+				F5DD5ECE2F386BC700E94AC0 /* model */,
 				F5DD5EC62F3845C800E94AC0 /* ImageGenerationModule.m */,
 				F5DD5EC72F3845C800E94AC0 /* ImageGenerationModule.swift */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
@@ -203,6 +206,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F5DD5ECF2F386BC700E94AC0 /* model in Resources */,
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
