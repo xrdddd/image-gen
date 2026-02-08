@@ -102,6 +102,11 @@ export async function generateImageLocal(
         height,
       });
 
+      // Native module already returns data URI with prefix, so return as-is
+      // Check if it already has the prefix to avoid double prefixing
+      if (base64Image.startsWith('data:image/')) {
+        return base64Image;
+      }
       return `data:image/png;base64,${base64Image}`;
     }
 

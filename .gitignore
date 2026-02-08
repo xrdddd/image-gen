@@ -1,5 +1,6 @@
 #large models
 assets/models
+ios/ImageGenerate/model
 
 # OSX
 .DS_Store

@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -18,6 +18,7 @@
 		F5DD5EC82F3845C800E94AC0 /* ImageGenerationModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F5DD5EC62F3845C800E94AC0 /* ImageGenerationModule.m */; };
 		F5DD5EC92F3845C800E94AC0 /* ImageGenerationModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5DD5EC72F3845C800E94AC0 /* ImageGenerationModule.swift */; };
 		F5DD5ECF2F386BC700E94AC0 /* model in Resources */ = {isa = PBXBuildFile; fileRef = F5DD5ECE2F386BC700E94AC0 /* model */; };
+		F5DD5ED22F38A3BF00E94AC0 /* StableDiffusion in Frameworks */ = {isa = PBXBuildFile; productRef = F5DD5ED12F38A3BF00E94AC0 /* StableDiffusion */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +48,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				96905EF65AED1B983A6B3ABC /* libPods-ImageGenerate.a in Frameworks */,
+				F5DD5ED22F38A3BF00E94AC0 /* StableDiffusion in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -192,6 +194,9 @@
 				Base,
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
+			packageReferences = (
+				F5DD5ED02F38A3BF00E94AC0 /* XCLocalSwiftPackageReference "../../ml-stable-diffusion" */,
+			);
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -564,6 +569,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		F5DD5ED02F38A3BF00E94AC0 /* XCLocalSwiftPackageReference "../../ml-stable-diffusion" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../ml-stable-diffusion";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F5DD5ED12F38A3BF00E94AC0 /* StableDiffusion */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StableDiffusion;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 83CBB9F71A601CBA00E9B192 /* Project object */;
 }
