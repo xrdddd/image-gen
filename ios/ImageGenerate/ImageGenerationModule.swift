@@ -11,16 +11,23 @@ import StableDiffusion
 import Compression
 
 @objc(ImageGenerationModule)
-class ImageGenerationModule: NSObject {
+class ImageGenerationModule: RCTEventEmitter {
   
   private var pipeline: StableDiffusionPipeline?
   private var isModelReady = false
   private var modelsBasePath: String?
+  private var progressTimer: Timer?
   
-  @objc
-  static func requiresMainQueueSetup() -> Bool {
+  // Required for RCTEventEmitter
+  override static func requiresMainQueueSetup() -> Bool {
     return false
   }
+  
+  // Define events that can be sent to JavaScript
+  override func supportedEvents() -> [String]! {
+    return ["onGenerationProgress"]
+  }
+  
   
   /**
    * Load Stable Diffusion pipeline using Apple's framework
@@ -129,7 +136,67 @@ class ImageGenerationModule: NSObject {
         generationConfig.guidanceScale = Float(guidanceScale.doubleValue)  // Convert Double to Float
         generationConfig.disableSafety = false  // Enable safety checker if available
         
+        let totalSteps = steps.intValue
+        let startTime = Date()
+        var isGenerating = true
+        
+        // Start progress reporting - estimate based on elapsed time
+        // Since Apple's framework doesn't expose step-by-step progress,
+        // we estimate based on typical generation time (roughly 1-2 seconds per step)
+        // Run timer on main thread to ensure events are sent properly
+        DispatchQueue.main.async { [weak self] in
+          guard let self = self else { return }
+          
+          self.progressTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] timer in
+            guard let self = self, isGenerating else {
+              timer.invalidate()
+              return
+            }
+            
+            let elapsed = Date().timeIntervalSince(startTime)
+            // Estimate: each step takes roughly 1-2 seconds depending on device
+            // Use a conservative estimate of 1.5 seconds per step
+            let estimatedTimePerStep = 1.5
+            let estimatedProgress = min(95, Int((elapsed / (Double(totalSteps) * estimatedTimePerStep)) * 100))
+            let estimatedStep = min(totalSteps, Int((elapsed / estimatedTimePerStep)))
+            
+            print("📊 Sending progress: step \(estimatedStep)/\(totalSteps), progress: \(estimatedProgress)%, elapsed: \(Int(elapsed))s")
+            
+            // Send progress event to JavaScript
+            self.sendEvent(withName: "onGenerationProgress", body: [
+              "step": estimatedStep,
+              "totalSteps": totalSteps,
+              "progress": estimatedProgress,
+              "elapsed": Int(elapsed)
+            ])
+          }
+          
+          // Add timer to run loop
+          if let timer = self.progressTimer {
+            RunLoop.current.add(timer, forMode: .common)
+          }
+        }
+        
+        // Generate image using Apple's framework
         let images = try pipeline.generateImages(configuration: generationConfig)
+        
+        // Stop progress timer
+        isGenerating = false
+        DispatchQueue.main.async { [weak self] in
+          self?.progressTimer?.invalidate()
+        }
+        
+        // Send final progress (100%)
+        let totalElapsed = Int(Date().timeIntervalSince(startTime))
+        print("📊 Sending final progress: 100%")
+        DispatchQueue.main.async { [weak self] in
+          self?.sendEvent(withName: "onGenerationProgress", body: [
+            "step": totalSteps,
+            "totalSteps": totalSteps,
+            "progress": 100,
+            "elapsed": totalElapsed
+          ])
+        }
         
         guard let cgImageOptional = images.first, let cgImage = cgImageOptional else {
           throw NSError(domain: "ImageGeneration", code: 1, userInfo: [NSLocalizedDescriptionKey: "No image generated"])

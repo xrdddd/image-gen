@@ -5,8 +5,9 @@
 
 #import <React/RCTBridgeModule.h>
 #import <React/RCTViewManager.h>
+#import <React/RCTEventEmitter.h>
 
-@interface RCT_EXTERN_MODULE(ImageGenerationModule, NSObject)
+@interface RCT_EXTERN_MODULE(ImageGenerationModule, RCTEventEmitter)
 
 RCT_EXTERN_METHOD(loadModel:(NSString *)modelPath
                   resolver:(RCTPromiseResolveBlock)resolve

@@ -32,6 +32,7 @@ export default function App() {
   const [modelStatus, setModelStatus] = useState<string>('');
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<{model: string; percentage: number} | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<{step: number; totalSteps: number; progress: number; elapsed: number} | null>(null);
 
   // Check if local generation is available on mount
   React.useEffect(() => {
@@ -274,15 +275,21 @@ export default function App() {
     setGeneratedImage(null);
 
     try {
+      setGenerationProgress(null);
       const imageDataUri = await generateImageLocal(prompt.trim(), {
         steps: 20,
         guidanceScale: 7.5,
         width: 512,
         height: 512,
+        onProgress: (progress) => {
+          setGenerationProgress(progress);
+        },
       });
       setGeneratedImage(imageDataUri);
+      setGenerationProgress(null);
     } catch (err: any) {
       setError(err.message || 'Failed to generate image');
+      setGenerationProgress(null);
       Alert.alert('Error', err.message || 'Failed to generate image');
     } finally {
       setLoading(false);
@@ -409,7 +416,21 @@ export default function App() {
           {loading && (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#fff" />
-              <Text style={styles.loadingText}>Generating your image...</Text>
+              <Text style={styles.loadingText}>
+                {generationProgress 
+                  ? `Generating... Step ${generationProgress.step}/${generationProgress.totalSteps} (${generationProgress.progress}%)`
+                  : 'Generating your image...'}
+              </Text>
+              {generationProgress && (
+                <View style={styles.progressBar}>
+                  <View 
+                    style={[
+                      styles.progressFill, 
+                      { width: `${generationProgress.progress}%` }
+                    ]} 
+                  />
+                </View>
+              )}
             </View>
           )}
         </ScrollView>

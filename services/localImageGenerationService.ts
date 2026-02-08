@@ -15,6 +15,14 @@ export interface GenerationOptions {
   seed?: number;
   width?: number;
   height?: number;
+  onProgress?: (progress: GenerationProgress) => void;
+}
+
+export interface GenerationProgress {
+  step: number;
+  totalSteps: number;
+  progress: number; // 0-100
+  elapsed: number; // seconds
 }
 
 // Native module interface (will be implemented in native code)
@@ -93,21 +101,54 @@ export async function generateImageLocal(
         }
       }
 
-      // Generate image using native module
-      const base64Image = await NativeImageGen.generateImage(prompt, {
-        steps,
-        guidanceScale,
-        seed,
-        width,
-        height,
-      });
-
-      // Native module already returns data URI with prefix, so return as-is
-      // Check if it already has the prefix to avoid double prefixing
-      if (base64Image.startsWith('data:image/')) {
-        return base64Image;
+      // Set up progress event listener if callback provided
+      let progressListener: any = null;
+      if (options.onProgress) {
+        const { NativeEventEmitter, NativeModules } = require('react-native');
+        // Use the actual native module from NativeModules, not the wrapped interface
+        const nativeModule = NativeModules.ImageGenerationModule;
+        
+        if (nativeModule) {
+          console.log('📡 Setting up progress event listener');
+          const eventEmitter = new NativeEventEmitter(nativeModule);
+          progressListener = eventEmitter.addListener('onGenerationProgress', (progress: GenerationProgress) => {
+            console.log('📊 Progress update:', progress);
+            options.onProgress?.(progress);
+          });
+          console.log('✅ Progress listener added');
+        } else {
+          console.log('⚠️ Native module not found for event emitter');
+        }
       }
-      return `data:image/png;base64,${base64Image}`;
+
+      try {
+        // Generate image using native module
+        const base64Image = await NativeImageGen.generateImage(prompt, {
+          steps,
+          guidanceScale,
+          seed,
+          width,
+          height,
+        });
+        
+        // Remove progress listener
+        if (progressListener) {
+          progressListener.remove();
+        }
+        
+        // Native module already returns data URI with prefix, so return as-is
+        // Check if it already has the prefix to avoid double prefixing
+        if (base64Image.startsWith('data:image/')) {
+          return base64Image;
+        }
+        return `data:image/png;base64,${base64Image}`;
+      } catch (error) {
+        // Remove progress listener on error
+        if (progressListener) {
+          progressListener.remove();
+        }
+        throw error;
+      }
     }
 
     // Fallback: Use JavaScript-based generation (slower but works everywhere)
