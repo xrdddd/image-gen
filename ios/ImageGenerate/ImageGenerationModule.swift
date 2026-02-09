@@ -18,6 +18,7 @@ class ImageGenerationModule: RCTEventEmitter {
   private var modelsBasePath: String?
   private var progressTimer: Timer?
   private var isGenerating = false  // Track if generation is in progress
+  private var activeComputeUnits: MLComputeUnits = .cpuOnly  // Track which compute units are actually being used
   
   // Required for RCTEventEmitter
   override static func requiresMainQueueSetup() -> Bool {
@@ -56,40 +57,45 @@ class ImageGenerationModule: RCTEventEmitter {
         // Some int8 models work better with Neural Engine, others with GPU
         let configuration = MLModelConfiguration()
         
-        // Try to detect if models are int8 by checking model directory
-        // Int8 models might be in a subdirectory or have a different naming pattern
+        // Try to detect if models are int4/int8 by checking model directory
+        // Quantized models might be in a subdirectory or have a different naming pattern
         var isInt8Model = false
         if let modelFiles = try? FileManager.default.contentsOfDirectory(atPath: baseURL.path) {
-          // Check if any model file suggests int8 quantization
+          // Check if any model file suggests quantization (int4, int8, quantized)
           // This is a heuristic - adjust based on your model naming
           for file in modelFiles {
-            if file.lowercased().contains("int8") || file.lowercased().contains("quantized") {
+            let lowerFile = file.lowercased()
+            if lowerFile.contains("int4") || lowerFile.contains("int8") || lowerFile.contains("quantized") {
               isInt8Model = true
-              print("🔍 Detected int8/quantized model: \(file)")
+              print("🔍 Detected quantized model (int4/int8): \(file)")
               break
             }
           }
         }
         
         // Configure compute units based on model type
-        // FP16 models worked fine with .cpuAndGPU, so use that for both
-        // Int8 models might have been quantized with MPSGraph optimizations, but
-        // we'll try the same compute units that worked for FP16 first
-        if #available(iOS 13.0, *) {
-          if isInt8Model {
-            // For int8 models, try .cpuAndGPU first (same as FP16 that worked)
-            // If int8 was quantized with MPSGraph requirements, this might fail
-            // and we'll fallback to CPU-only
-            configuration.computeUnits = .cpuAndGPU
-            print("📱 Using compute units: .cpuAndGPU (for int8 model, same as FP16)")
-          } else {
-            // For FP16 models, use GPU (lower memory, worked before)
-            configuration.computeUnits = .cpuAndGPU
-            print("📱 Using compute units: .cpuAndGPU (for FP16 model)")
-          }
-        } else {
-          configuration.computeUnits = .cpuAndNeuralEngine
-        }
+        // For int4 models on 4GB devices (iPhone 13), CPU-only may use less memory
+        // GPU/Neural Engine can consume additional memory for acceleration
+        // if #available(iOS 13.0, *) {
+        //   if isInt8Model {
+        //     // For int4/int8 models on low-memory devices, try CPU-only first
+        //     // CPU-only avoids GPU memory overhead which can help on 4GB devices
+        //     // If user wants speed over memory, they can manually change to .cpuAndGPU
+        //     configuration.computeUnits = .cpuOnly
+        //     print("📱 Using compute units: .cpuOnly (for int4/int8 model, optimized for 4GB devices)")
+        //     print("📱 Note: CPU-only uses less memory but is slower. Change to .cpuAndGPU for speed.")
+        //   } else {
+        //     // For FP16 models, use GPU (lower memory than Neural Engine)
+        //     configuration.computeUnits = .cpuAndGPU
+        //     print("📱 Using compute units: .cpuAndGPU (for FP16 model)")
+        //   }
+        // } else {
+        //   configuration.computeUnits = .cpuOnly
+        // }
+
+        configuration.computeUnits = .cpuAndNeuralEngine
+        print("📱 force Using compute units: .cpuAndNeuralEngine")
+
         
         // Initialize pipeline with model path
         // Apple's framework automatically loads:
@@ -108,7 +114,9 @@ class ImageGenerationModule: RCTEventEmitter {
             controlNet: [],  // Empty array = no ControlNet for basic text-to-image
             configuration: configuration
           )
+          self.activeComputeUnits = configuration.computeUnits
           print("✅ Pipeline loaded successfully with \(configuration.computeUnits)")
+          self.printComputeUnitsInfo(configuration.computeUnits)
         } catch {
           // If the original compute units fail (e.g., MPSGraph errors with int8),
           // fallback to CPU-only which avoids MPSGraph entirely
@@ -128,7 +136,9 @@ class ImageGenerationModule: RCTEventEmitter {
                 controlNet: [],
                 configuration: configuration
               )
+              self.activeComputeUnits = configuration.computeUnits
               print("✅ Pipeline loaded successfully with .cpuOnly (MPSGraph fallback)")
+              self.printComputeUnitsInfo(configuration.computeUnits)
             } catch {
               // If CPU-only also fails, something else is wrong
               throw error
@@ -267,6 +277,7 @@ class ImageGenerationModule: RCTEventEmitter {
         print("🚀 Starting image generation...")
         print("  📋 Config: steps=\(generationConfig.stepCount), guidance=\(generationConfig.guidanceScale), seed=\(generationConfig.seed)")
         print("  ⏱️  This may take 30-60 seconds for int8 models...")
+        self.printComputeUnitsInfo(self.activeComputeUnits)
         print("  🔄 Calling pipeline.generateImages()...")
         
         let generationStartTime = Date()
@@ -916,10 +927,32 @@ class ImageGenerationModule: RCTEventEmitter {
       // Skip other types (symlinks, etc.)
       
       position += Int(blocks) * 512
+    }
   }
-}
-
-/**
+  
+  /**
+   * Print detailed information about compute units being used
+   */
+  private func printComputeUnitsInfo(_ computeUnits: MLComputeUnits) {
+    switch computeUnits {
+    case .cpuOnly:
+      print("  🔧 Inference Device: CPU Only")
+      print("  ⚡ Performance: Slower but most compatible")
+    case .cpuAndGPU:
+      print("  🔧 Inference Device: CPU + GPU")
+      print("  ⚡ Performance: Fast, uses GPU acceleration")
+    case .cpuAndNeuralEngine:
+      print("  🔧 Inference Device: CPU + Neural Engine")
+      print("  ⚡ Performance: Very fast on Apple Silicon")
+    case .all:
+      print("  🔧 Inference Device: All (CPU + GPU + Neural Engine)")
+      print("  ⚡ Performance: Fastest, uses all available hardware")
+    @unknown default:
+      print("  🔧 Inference Device: Unknown (\(computeUnits))")
+    }
+  }
+  
+  /**
    * Parse tar header (UStar format)
    */
   private func parseTarHeader(_ data: Data) throws -> (name: String, size: UInt64, type: String) {

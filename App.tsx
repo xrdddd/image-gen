@@ -250,13 +250,14 @@ export default function App() {
 
     try {
       setGenerationProgress(null);
-      // Use lower resolution (384x384) and fewer steps (15) to reduce memory usage
-      // This helps prevent crashes on devices with limited RAM
+      // Aggressive memory optimization for iPhone 13 (4GB RAM)
+      // Use very low resolution (256x256) and minimal steps (10) to prevent crashes
+      // 256x256 uses ~70% less memory than 512x512 and ~56% less than 384x384
       const imageDataUri = await generateImageLocal(prompt.trim(), {
-        steps: 15,  // Reduced from 20 to save memory
-        guidanceScale: 7.5,
-        width: 384,  // Reduced from 512 to save memory (384x384 uses ~44% less memory than 512x512)
-        height: 384,
+        steps: 10,  // Minimal steps for 4GB devices (reduced from 15)
+        guidanceScale: 7.0,  // Slightly reduced to save memory
+        width: 256,  // Very low resolution for 4GB devices (256x256 = 65,536 pixels vs 262,144 for 512x512)
+        height: 256,
         onProgress: (progress) => {
           setGenerationProgress(progress);
         },
