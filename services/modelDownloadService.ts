@@ -433,7 +433,7 @@ export async function downloadModel(
  * 3. After download, models will be loaded from bundle first, then documents
  */
 export async function downloadAllModels(
-  onProgress?: (modelName: string, progress: DownloadProgress) => void
+  onProgress?: (overallProgress: { currentModel: string; overallPercentage: number; loaded: number; total: number }) => void
 ): Promise<void> {
   // Get list of models that need downloading (not in bundle or documents)
   const modelsToDownload = await getModelsToDownload();
@@ -449,15 +449,48 @@ export async function downloadAllModels(
   console.log(`📦 Downloading ${modelsToDownload.length} missing models (${(totalSize / 1024 / 1024 / 1024).toFixed(2)} GB)...`);
   console.log(`   Models to download: ${modelsToDownload.map(m => m.name).join(', ')}`);
   
-  for (const model of modelsToDownload) {
+  let totalDownloaded = 0;
+  
+  for (let i = 0; i < modelsToDownload.length; i++) {
+    const model = modelsToDownload[i];
     
     try {
       console.log(`📥 Starting download: ${model.name} (${(model.size / 1024 / 1024).toFixed(2)} MB)`);
       const downloadedPath = await downloadModel(model, (progress) => {
         if (onProgress) {
-          onProgress(model.name, progress);
+          // Calculate overall progress across all files
+          // Progress = (files completed + current file progress) / total files
+          const currentFileProgress = (progress.loaded / model.size) * model.size; // Bytes downloaded for current file
+          const overallLoaded = totalDownloaded + progress.loaded;
+          const overallPercentage = totalSize > 0 
+            ? Math.min(100, Math.max(0, (overallLoaded / totalSize) * 100))
+            : 0;
+          
+          onProgress({
+            currentModel: model.name,
+            overallPercentage: overallPercentage,
+            loaded: overallLoaded,
+            total: totalSize
+          });
         }
       });
+      
+      // Update total downloaded after file completes
+      totalDownloaded += model.size;
+      
+      // Send final progress for this file (100% of this file)
+      if (onProgress) {
+        const overallPercentage = totalSize > 0 
+          ? Math.min(100, Math.max(0, (totalDownloaded / totalSize) * 100))
+          : 0;
+        onProgress({
+          currentModel: model.name,
+          overallPercentage: overallPercentage,
+          loaded: totalDownloaded,
+          total: totalSize
+        });
+      }
+      
       console.log(`✅ Completed: ${model.name} -> ${downloadedPath}`);
     } catch (error: any) {
       console.error(`❌ Failed to download ${model.name}:`, error);

@@ -31,7 +31,7 @@ export default function App() {
   const [modelLoading, setModelLoading] = useState(false);
   const [modelStatus, setModelStatus] = useState<string>('');
   const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<{model: string; percentage: number} | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<{currentModel: string; overallPercentage: number; loaded: number; total: number} | null>(null);
   const [generationProgress, setGenerationProgress] = useState<{step: number; totalSteps: number; progress: number; elapsed: number} | null>(null);
 
   // Check if local generation is available on mount
@@ -99,25 +99,13 @@ export default function App() {
       
       console.log(`📦 Starting download of ${sizeGB} GB models...`);
       
-      await downloadAllModels((modelName, progress) => {
-        // Ensure percentage is valid (0-100)
-        const validPercentage = Math.max(0, Math.min(100, progress.percentage || 0));
+      await downloadAllModels((overallProgress) => {
+        setDownloadProgress(overallProgress);
         
-        setDownloadProgress({
-          model: modelName,
-          percentage: validPercentage,
-        });
+        const loadedGB = (overallProgress.loaded / 1024 / 1024 / 1024).toFixed(2);
+        const totalGB = (overallProgress.total / 1024 / 1024 / 1024).toFixed(2);
         
-        const loadedMB = (progress.loaded / 1024 / 1024).toFixed(1);
-        const totalMB = progress.total > 0 ? (progress.total / 1024 / 1024).toFixed(1) : '?';
-        
-        let status: string;
-        if (progress.total > 0) {
-          status = `Downloading ${modelName}: ${validPercentage.toFixed(1)}% (${loadedMB}MB / ${totalMB}MB)`;
-        } else {
-          status = `Downloading ${modelName}: ${loadedMB}MB (size unknown)`;
-        }
-        
+        const status = `Downloading models: ${overallProgress.overallPercentage.toFixed(1)}% (${loadedGB}GB / ${totalGB}GB) - ${overallProgress.currentModel}`;
         setModelStatus(status);
         console.log(`📥 ${status}`);
       });
@@ -216,25 +204,13 @@ export default function App() {
               try {
                 setModelStatus('Starting download from S3...');
                 
-                await downloadAllModels((modelName, progress) => {
-                  // Ensure percentage is valid (0-100)
-                  const validPercentage = Math.max(0, Math.min(100, progress.percentage || 0));
+                await downloadAllModels((overallProgress) => {
+                  setDownloadProgress(overallProgress);
                   
-                  setDownloadProgress({
-                    model: modelName,
-                    percentage: validPercentage,
-                  });
+                  const loadedGB = (overallProgress.loaded / 1024 / 1024 / 1024).toFixed(2);
+                  const totalGB = (overallProgress.total / 1024 / 1024 / 1024).toFixed(2);
                   
-                  const loadedMB = (progress.loaded / 1024 / 1024).toFixed(1);
-                  const totalMB = progress.total > 0 ? (progress.total / 1024 / 1024).toFixed(1) : '?';
-                  
-                  let status: string;
-                  if (progress.total > 0) {
-                    status = `Downloading ${modelName}: ${validPercentage.toFixed(1)}% (${loadedMB}MB / ${totalMB}MB)`;
-                  } else {
-                    status = `Downloading ${modelName}: ${loadedMB}MB (size unknown)`;
-                  }
-                  
+                  const status = `Downloading models: ${overallProgress.overallPercentage.toFixed(1)}% (${loadedGB}GB / ${totalGB}GB) - ${overallProgress.currentModel}`;
                   setModelStatus(status);
                   console.log(`📥 ${status}`);
                 });
@@ -288,9 +264,19 @@ export default function App() {
       setGeneratedImage(imageDataUri);
       setGenerationProgress(null);
     } catch (err: any) {
-      setError(err.message || 'Failed to generate image');
       setGenerationProgress(null);
-      Alert.alert('Error', err.message || 'Failed to generate image');
+      // Check if error is related to model not being ready
+      const errorMessage = err.message || 'Failed to generate image';
+      const isModelNotReady = errorMessage.toLowerCase().includes('not loaded') || 
+                              errorMessage.toLowerCase().includes('model not') ||
+                              errorMessage.toLowerCase().includes('not ready');
+      
+      const displayMessage = isModelNotReady 
+        ? 'Model is not ready yet. Please wait for models to load or download them first.'
+        : errorMessage;
+      
+      setError(displayMessage);
+      Alert.alert('Error', displayMessage);
     } finally {
       setLoading(false);
     }
@@ -321,7 +307,7 @@ export default function App() {
             <Text style={styles.subtitle}>Transform your ideas into images</Text>
             {localAvailable && (
               <View style={styles.badge}>
-                <Text style={styles.badgeText}>🚀 On-Device Generation</Text>
+                <Text style={styles.badgeText}>📱 On-Device Generation</Text>
               </View>
             )}
             {modelLoading && (
@@ -332,14 +318,14 @@ export default function App() {
             )}
             {downloadProgress && (
               <View style={styles.downloadContainer}>
-                <Text style={styles.downloadText}>
-                  Downloading {downloadProgress.model}: {downloadProgress.percentage.toFixed(1)}%
+                <Text style={styles.downloadSubtext}>
+                  {(downloadProgress.loaded / 1024 / 1024 / 1024).toFixed(2)}GB / {(downloadProgress.total / 1024 / 1024 / 1024).toFixed(2)}GB
                 </Text>
                 <View style={styles.progressBar}>
                   <View 
                     style={[
                       styles.progressFill, 
-                      { width: `${downloadProgress.percentage}%` }
+                      { width: `${downloadProgress.overallPercentage}%` }
                     ]} 
                   />
                 </View>
@@ -578,7 +564,14 @@ const styles = StyleSheet.create({
   },
   downloadText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 14,
+    marginBottom: 4,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  downloadSubtext: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 11,
     marginBottom: 8,
     textAlign: 'center',
   },
