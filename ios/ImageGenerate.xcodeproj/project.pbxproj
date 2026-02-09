@@ -195,7 +195,7 @@
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
 			packageReferences = (
-				F5DD5ED02F38A3BF00E94AC0 /* XCLocalSwiftPackageReference "../../ml-stable-diffusion" */,
+				F5DD5ED02F38A3BF00E94AC0 /* XCLocalSwiftPackageReference "ml-stable-diffusion" */,
 			);
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
 			projectDirPath = "";
@@ -571,7 +571,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		F5DD5ED02F38A3BF00E94AC0 /* XCLocalSwiftPackageReference "../../ml-stable-diffusion" */ = {
+		F5DD5ED02F38A3BF00E94AC0 /* XCLocalSwiftPackageReference "ml-stable-diffusion" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "../../ml-stable-diffusion";
 		};

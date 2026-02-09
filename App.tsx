@@ -298,7 +298,10 @@ export default function App() {
     >
       <StatusBar style="auto" />
       <LinearGradient
-        colors={['#667eea', '#764ba2']}
+        colors={['#1a1a2e', '#16213e', '#0f3460', '#533483']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        locations={[0, 0.3, 0.7, 1]}
         style={styles.gradient}
       >
         <ScrollView
@@ -343,7 +346,7 @@ export default function App() {
             <TextInput
               style={styles.input}
               placeholder="Describe the image you want to generate..."
-              placeholderTextColor="#999"
+              placeholderTextColor="rgba(255, 255, 255, 0.5)"
               value={prompt}
               onChangeText={setPrompt}
               multiline
@@ -354,26 +357,44 @@ export default function App() {
           </View>
 
           <View style={styles.buttonContainer}>
-            <TouchableOpacity
+            <LinearGradient
+              colors={loading ? ['#667eea', '#764ba2'] : ['#667eea', '#764ba2', '#533483', '#4a2c7a']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              locations={[0, 0.3, 0.7, 1]}
               style={[styles.button, styles.generateButton]}
-              onPress={handleGenerate}
-              disabled={loading}
             >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Generate Image</Text>
-              )}
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.buttonInner}
+                onPress={handleGenerate}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>✨ Generate Image</Text>
+                )}
+              </TouchableOpacity>
+            </LinearGradient>
 
             {generatedImage && (
-              <TouchableOpacity
+              <LinearGradient
+                colors={['#e94560', '#c73650', '#a01d3d', '#7a1530']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                locations={[0, 0.3, 0.7, 1]}
                 style={[styles.button, styles.clearButton]}
-                onPress={handleClear}
-                disabled={loading}
               >
-                <Text style={styles.buttonText}>Clear</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.buttonInner}
+                  onPress={handleClear}
+                  disabled={loading}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.buttonText}>🗑️ Clear</Text>
+                </TouchableOpacity>
+              </LinearGradient>
             )}
           </View>
 
@@ -399,7 +420,7 @@ export default function App() {
               <ActivityIndicator size="large" color="#fff" />
               <Text style={styles.loadingText}>
                 {generationProgress 
-                  ? `Generating... Step ${generationProgress.step}/${generationProgress.totalSteps} (${generationProgress.progress}%)`
+                  ? `Generating... ${generationProgress.progress}%`
                   : 'Generating your image...'}
               </Text>
               {generationProgress && (
@@ -426,6 +447,7 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
+    position: 'relative',
   },
   scrollContent: {
     flexGrow: 1,
@@ -437,59 +459,84 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   title: {
-    fontSize: 32,
-    fontWeight: 'bold',
+    fontSize: 36,
+    fontWeight: '800',
     color: '#fff',
     marginBottom: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+    letterSpacing: 0.5,
   },
   subtitle: {
     fontSize: 16,
     color: '#fff',
-    opacity: 0.9,
+    opacity: 0.95,
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   inputContainer: {
     marginBottom: 20,
   },
   input: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: 'rgba(26, 26, 46, 0.6)',
+    borderRadius: 16,
     padding: 16,
     fontSize: 16,
     minHeight: 120,
     textAlignVertical: 'top',
+    color: '#fff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(83, 52, 131, 0.5)',
   },
   buttonContainer: {
     flexDirection: 'row',
     gap: 12,
     marginBottom: 20,
+    alignItems: 'center',
   },
   button: {
     flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: 50,
+    maxHeight: 50,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+    overflow: 'hidden',
   },
   generateButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#00d4ff',
   },
   clearButton: {
-    backgroundColor: '#f44336',
+    backgroundColor: '#ff6b9d',
+  },
+  buttonInner: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   errorContainer: {
     backgroundColor: 'rgba(244, 67, 54, 0.2)',
@@ -504,18 +551,24 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     marginTop: 20,
-    borderRadius: 12,
+    borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 10,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    alignSelf: 'center',
+    maxWidth: '85%',
   },
   image: {
-    width: '100%',
-    aspectRatio: 1,
+    width: 300,
+    height: 300,
+    maxWidth: '100%',
+    alignSelf: 'center',
   },
   loadingContainer: {
     alignItems: 'center',

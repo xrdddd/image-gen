@@ -14,6 +14,11 @@ config.resolver = {
   ...config.resolver,
   blockList: [
     /node_modules\/.*\/node_modules\/react-native\/.*/,
+    /ios\/build\/.*/,
+    /android\/build\/.*/,
+    /ios\/Pods\/.*/,
+    /\.expo\/.*/,
+    /\.git\/.*/,
   ],
 };
 
@@ -22,6 +27,17 @@ config.server = {
   ...config.server,
   enhanceMiddleware: (middleware) => {
     return middleware;
+  },
+};
+
+// Force watchman usage and reduce file watching
+config.watcher = {
+  ...config.watcher,
+  watchman: {
+    deferStates: ['hg.update'],
+  },
+  healthCheck: {
+    enabled: true,
   },
 };
 
