@@ -64,7 +64,7 @@ export default function App() {
         try {
           const loaded = await preloadModel();
           if (loaded) {
-            setModelStatus('✅ Models loaded from bundle or cache');
+            setModelStatus('Model is ready.');
             console.log('✅ Models loaded successfully');
           } else {
             setModelStatus('⚠️ Models found but failed to load');
@@ -77,7 +77,7 @@ export default function App() {
       }
       
       // Some models are missing - auto-download them
-      console.log(`📥 ${modelsToDownload.length} models need downloading: ${modelsToDownload.map(m => m.name).join(', ')}`);
+      console.log(`📥 ${modelsToDownload.length} models need downloading: ${modelsToDownload.map((m: { name: string }) => m.name).join(', ')}`);
       setModelStatus(`Preparing to download ${modelsToDownload.length} missing models...`);
       
       // Start download automatically
@@ -91,7 +91,7 @@ export default function App() {
     if (downloading) return;
     
     setDownloading(true);
-    setModelStatus('Starting automatic download from S3...');
+    setModelStatus('Starting automatic download...');
     
     try {
       const totalSize = getTotalDownloadSize();
@@ -105,9 +105,8 @@ export default function App() {
         const loadedGB = (overallProgress.loaded / 1024 / 1024 / 1024).toFixed(2);
         const totalGB = (overallProgress.total / 1024 / 1024 / 1024).toFixed(2);
         
-        const status = `Downloading models: ${overallProgress.overallPercentage.toFixed(1)}% (${loadedGB}GB / ${totalGB}GB) - ${overallProgress.currentModel}`;
-        setModelStatus(status);
-        console.log(`📥 ${status}`);
+        // Don't set modelStatus during download - only show progress bar
+        console.log(`📥 Downloading: ${overallProgress.overallPercentage.toFixed(1)}% (${loadedGB}GB / ${totalGB}GB)`);
       });
       
       setModelStatus('✅ Download complete! Loading models...');
@@ -121,7 +120,7 @@ export default function App() {
       setModelStatus(`❌ Download failed: ${error.message}`);
       Alert.alert(
         'Download Error', 
-        `Failed to download models:\n\n${error.message}\n\nPlease check:\n- Internet connection\n- S3 bucket is accessible\n- Files exist in S3`
+        `Failed to download models:\n\n${error.message}\n\nPlease check your internet connection.`
       );
     } finally {
       setDownloading(false);
@@ -145,7 +144,7 @@ export default function App() {
       try {
         const loaded = await preloadModel();
         if (loaded) {
-          setModelStatus('✅ Models loaded from bundle or cache');
+          setModelStatus('✅ Model loaded.');
           setModelLoading(false);
           return; // Models loaded successfully
         }
@@ -157,8 +156,8 @@ export default function App() {
       const allCached = await areAllModelsCached();
       
       if (!allCached) {
-        // Models not in bundle and not in cache - need to download from S3
-        setModelStatus('Models not found in bundle or cache. Ready to download from S3.');
+        // Models not in bundle and not in cache - need to download
+        setModelStatus('Models not found in bundle or cache. Ready to download.');
         setModelLoading(false);
         // Don't auto-download - let user decide when to download
         return;
@@ -187,22 +186,22 @@ export default function App() {
     if (downloading) return;
     
     setDownloading(true);
-    setModelStatus('Preparing download from S3...');
+    setModelStatus('Preparing download...');
     
     try {
       const totalSize = getTotalDownloadSize();
       const sizeGB = (totalSize / 1024 / 1024 / 1024).toFixed(2);
       
       Alert.alert(
-        'Download Models from S3',
-        `Download ${sizeGB} GB of models from AWS S3?\n\nThis may take a while depending on your connection.\n\nSource: image-gen-pd123.s3.eu-north-1.amazonaws.com`,
+        'Download Models',
+        `Download ${sizeGB} GB of models?\n\nThis may take a while depending on your connection.`,
         [
           { text: 'Cancel', style: 'cancel', onPress: () => setDownloading(false) },
           {
             text: 'Download',
             onPress: async () => {
               try {
-                setModelStatus('Starting download from S3...');
+                setModelStatus('Starting download...');
                 
                 await downloadAllModels((overallProgress) => {
                   setDownloadProgress(overallProgress);
@@ -210,9 +209,8 @@ export default function App() {
                   const loadedGB = (overallProgress.loaded / 1024 / 1024 / 1024).toFixed(2);
                   const totalGB = (overallProgress.total / 1024 / 1024 / 1024).toFixed(2);
                   
-                  const status = `Downloading models: ${overallProgress.overallPercentage.toFixed(1)}% (${loadedGB}GB / ${totalGB}GB) - ${overallProgress.currentModel}`;
-                  setModelStatus(status);
-                  console.log(`📥 ${status}`);
+                  // Don't set modelStatus during download - only show progress bar
+                  console.log(`📥 Downloading: ${overallProgress.overallPercentage.toFixed(1)}% (${loadedGB}GB / ${totalGB}GB)`);
                 });
                 
                 setModelStatus('✅ Download complete! Loading models...');
@@ -225,7 +223,7 @@ export default function App() {
                 setModelStatus(`❌ Download failed: ${error.message}`);
                 Alert.alert(
                   'Download Error', 
-                  `Failed to download models:\n\n${error.message}\n\nPlease check:\n- Internet connection\n- S3 bucket is accessible\n- Files exist in S3`
+                  `Failed to download models:\n\n${error.message}\n\nPlease check your internet connection.`
                 );
               } finally {
                 setDownloading(false);
@@ -269,14 +267,19 @@ export default function App() {
       const errorMessage = err.message || 'Failed to generate image';
       const isModelNotReady = errorMessage.toLowerCase().includes('not loaded') || 
                               errorMessage.toLowerCase().includes('model not') ||
-                              errorMessage.toLowerCase().includes('not ready');
+                              errorMessage.toLowerCase().includes('not ready') ||
+                              errorMessage.toLowerCase().includes('missing required models');
       
       const displayMessage = isModelNotReady 
-        ? 'Model is not ready yet. Please wait for models to load or download them first.'
+        ? 'Model is not ready yet.'
         : errorMessage;
       
       setError(displayMessage);
-      Alert.alert('Error', displayMessage);
+      if (isModelNotReady) {
+        Alert.alert('', 'Model is not ready yet.');
+      } else {
+        Alert.alert('Error', displayMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -313,11 +316,14 @@ export default function App() {
             {modelLoading && (
               <Text style={styles.modelLoadingText}>Loading model...</Text>
             )}
-            {modelStatus && !modelLoading && (
+            {modelStatus && !modelLoading && !modelStatus.includes('Models not found') && !modelStatus.includes('Starting automatic download') && (
               <Text style={styles.modelStatusText}>{modelStatus}</Text>
             )}
             {downloadProgress && (
               <View style={styles.downloadContainer}>
+                <Text style={styles.downloadText}>
+                  Downloading {downloadProgress.overallPercentage.toFixed(1)}%
+                </Text>
                 <Text style={styles.downloadSubtext}>
                   {(downloadProgress.loaded / 1024 / 1024 / 1024).toFixed(2)}GB / {(downloadProgress.total / 1024 / 1024 / 1024).toFixed(2)}GB
                 </Text>
@@ -330,17 +336,6 @@ export default function App() {
                   />
                 </View>
               </View>
-            )}
-            {!modelLoading && !downloading && localAvailable && (modelStatus.includes('Download') || modelStatus.includes('not cached') || modelStatus.includes('Ready to download')) && (
-              <TouchableOpacity
-                style={[styles.button, styles.downloadButton]}
-                onPress={handleDownloadModels}
-                disabled={downloading}
-              >
-                <Text style={styles.buttonText}>
-                  {downloading ? 'Downloading...' : 'Download Models'}
-                </Text>
-              </TouchableOpacity>
             )}
           </View>
 

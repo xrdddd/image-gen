@@ -792,10 +792,10 @@ class ImageGenerationModule: RCTEventEmitter {
       // Skip other types (symlinks, etc.)
       
       position += Int(blocks) * 512
-    }
   }
-  
-  /**
+}
+
+/**
    * Parse tar header (UStar format)
    */
   private func parseTarHeader(_ data: Data) throws -> (name: String, size: UInt64, type: String) {
