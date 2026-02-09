@@ -250,11 +250,13 @@ export default function App() {
 
     try {
       setGenerationProgress(null);
+      // Use lower resolution (384x384) and fewer steps (15) to reduce memory usage
+      // This helps prevent crashes on devices with limited RAM
       const imageDataUri = await generateImageLocal(prompt.trim(), {
-        steps: 20,
+        steps: 15,  // Reduced from 20 to save memory
         guidanceScale: 7.5,
-        width: 512,
-        height: 512,
+        width: 384,  // Reduced from 512 to save memory (384x384 uses ~44% less memory than 512x512)
+        height: 384,
         onProgress: (progress) => {
           setGenerationProgress(progress);
         },
@@ -358,7 +360,7 @@ export default function App() {
 
           <View style={styles.buttonContainer}>
             <LinearGradient
-              colors={loading ? ['#667eea', '#764ba2'] : ['#667eea', '#764ba2', '#533483', '#4a2c7a']}
+              colors={loading ? ['#667eea', '#764ba2', '#533483', '#4a2c7a'] : ['#667eea', '#764ba2', '#533483', '#4a2c7a']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               locations={[0, 0.3, 0.7, 1]}

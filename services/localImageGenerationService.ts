@@ -112,7 +112,7 @@ export async function generateImageLocal(
           console.log('📡 Setting up progress event listener');
           const eventEmitter = new NativeEventEmitter(nativeModule);
           progressListener = eventEmitter.addListener('onGenerationProgress', (progress: GenerationProgress) => {
-            console.log('📊 Progress update:', progress);
+            // console.log('📊 Progress update:', progress);
             options.onProgress?.(progress);
           });
           console.log('✅ Progress listener added');
@@ -338,3 +338,4 @@ export async function testModelLoading(): Promise<{
     };
   }
 }
+

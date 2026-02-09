@@ -17,6 +17,7 @@ class ImageGenerationModule: RCTEventEmitter {
   private var isModelReady = false
   private var modelsBasePath: String?
   private var progressTimer: Timer?
+  private var isGenerating = false  // Track if generation is in progress
   
   // Required for RCTEventEmitter
   override static func requiresMainQueueSetup() -> Bool {
@@ -27,6 +28,7 @@ class ImageGenerationModule: RCTEventEmitter {
   override func supportedEvents() -> [String]! {
     return ["onGenerationProgress"]
   }
+  
   
   
   /**
@@ -50,8 +52,44 @@ class ImageGenerationModule: RCTEventEmitter {
         print("📦 Loading Stable Diffusion pipeline from: \(baseURL.path)")
         
         // Create configuration for the pipeline
+        // For int8 quantized models, try different compute units
+        // Some int8 models work better with Neural Engine, others with GPU
         let configuration = MLModelConfiguration()
-        configuration.computeUnits = .cpuAndNeuralEngine  // Use Neural Engine if available
+        
+        // Try to detect if models are int8 by checking model directory
+        // Int8 models might be in a subdirectory or have a different naming pattern
+        var isInt8Model = false
+        if let modelFiles = try? FileManager.default.contentsOfDirectory(atPath: baseURL.path) {
+          // Check if any model file suggests int8 quantization
+          // This is a heuristic - adjust based on your model naming
+          for file in modelFiles {
+            if file.lowercased().contains("int8") || file.lowercased().contains("quantized") {
+              isInt8Model = true
+              print("🔍 Detected int8/quantized model: \(file)")
+              break
+            }
+          }
+        }
+        
+        // Configure compute units based on model type
+        // FP16 models worked fine with .cpuAndGPU, so use that for both
+        // Int8 models might have been quantized with MPSGraph optimizations, but
+        // we'll try the same compute units that worked for FP16 first
+        if #available(iOS 13.0, *) {
+          if isInt8Model {
+            // For int8 models, try .cpuAndGPU first (same as FP16 that worked)
+            // If int8 was quantized with MPSGraph requirements, this might fail
+            // and we'll fallback to CPU-only
+            configuration.computeUnits = .cpuAndGPU
+            print("📱 Using compute units: .cpuAndGPU (for int8 model, same as FP16)")
+          } else {
+            // For FP16 models, use GPU (lower memory, worked before)
+            configuration.computeUnits = .cpuAndGPU
+            print("📱 Using compute units: .cpuAndGPU (for FP16 model)")
+          }
+        } else {
+          configuration.computeUnits = .cpuAndNeuralEngine
+        }
         
         // Initialize pipeline with model path
         // Apple's framework automatically loads:
@@ -61,11 +99,51 @@ class ImageGenerationModule: RCTEventEmitter {
         // - vocab.json, merges.txt (for tokenizer)
         // controlNet expects an array of strings, not nil
         // Pass empty array [] if not using ControlNet
-        self.pipeline = try StableDiffusionPipeline(
-          resourcesAt: baseURL,
-          controlNet: [],  // Empty array = no ControlNet for basic text-to-image
-          configuration: configuration
-        )
+        
+        // Try to load with the configured compute units first (same as FP16 that worked)
+        var pipeline: StableDiffusionPipeline?
+        do {
+          pipeline = try StableDiffusionPipeline(
+            resourcesAt: baseURL,
+            controlNet: [],  // Empty array = no ControlNet for basic text-to-image
+            configuration: configuration
+          )
+          print("✅ Pipeline loaded successfully with \(configuration.computeUnits)")
+        } catch {
+          // If the original compute units fail (e.g., MPSGraph errors with int8),
+          // fallback to CPU-only which avoids MPSGraph entirely
+          print("⚠️ Failed with \(configuration.computeUnits), error: \(error.localizedDescription)")
+          
+          // Check if it's an MPSGraph error
+          let errorString = error.localizedDescription.lowercased()
+          if errorString.contains("mpsgraph") || errorString.contains("mps") || errorString.contains("metal") {
+            print("⚠️ MPSGraph/Metal error detected - falling back to CPU-only")
+            if #available(iOS 13.0, *) {
+              configuration.computeUnits = .cpuOnly
+            }
+            
+            do {
+              pipeline = try StableDiffusionPipeline(
+                resourcesAt: baseURL,
+                controlNet: [],
+                configuration: configuration
+              )
+              print("✅ Pipeline loaded successfully with .cpuOnly (MPSGraph fallback)")
+            } catch {
+              // If CPU-only also fails, something else is wrong
+              throw error
+            }
+          } else {
+            // Not an MPSGraph error, re-throw the original error
+            throw error
+          }
+        }
+        
+        guard let loadedPipeline = pipeline else {
+          throw NSError(domain: "ImageGeneration", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to load pipeline with any compute unit configuration"])
+        }
+        
+        self.pipeline = loadedPipeline
         
         self.isModelReady = true
         print("✅ Stable Diffusion pipeline loaded successfully")
@@ -111,6 +189,14 @@ class ImageGenerationModule: RCTEventEmitter {
     }
     
     let workItem = DispatchWorkItem {
+      // Set generation flag to prevent unloading during generation
+      self.isGenerating = true
+      
+      defer {
+        // Always clear the flag when done (success or error)
+        self.isGenerating = false
+      }
+      
       do {
         print("🎨 Generating image for prompt: \(prompt)")
         
@@ -138,7 +224,6 @@ class ImageGenerationModule: RCTEventEmitter {
         
         let totalSteps = steps.intValue
         let startTime = Date()
-        var isGenerating = true
         
         // Start progress reporting - estimate based on elapsed time
         // Since Apple's framework doesn't expose step-by-step progress,
@@ -148,7 +233,7 @@ class ImageGenerationModule: RCTEventEmitter {
           guard let self = self else { return }
           
           self.progressTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] timer in
-            guard let self = self, isGenerating else {
+            guard let self = self, self.isGenerating else {
               timer.invalidate()
               return
             }
@@ -160,7 +245,7 @@ class ImageGenerationModule: RCTEventEmitter {
             let estimatedProgress = min(95, Int((elapsed / (Double(totalSteps) * estimatedTimePerStep)) * 100))
             let estimatedStep = min(totalSteps, Int((elapsed / estimatedTimePerStep)))
             
-            print("📊 Sending progress: step \(estimatedStep)/\(totalSteps), progress: \(estimatedProgress)%, elapsed: \(Int(elapsed))s")
+            // print("📊 Sending progress: step \(estimatedStep)/\(totalSteps), progress: \(estimatedProgress)%, elapsed: \(Int(elapsed))s")
             
             // Send progress event to JavaScript
             self.sendEvent(withName: "onGenerationProgress", body: [
@@ -178,10 +263,49 @@ class ImageGenerationModule: RCTEventEmitter {
         }
         
         // Generate image using Apple's framework
-        let images = try pipeline.generateImages(configuration: generationConfig)
+        // Add detailed logging for int8 model debugging
+        print("🚀 Starting image generation...")
+        print("  📋 Config: steps=\(generationConfig.stepCount), guidance=\(generationConfig.guidanceScale), seed=\(generationConfig.seed)")
+        print("  ⏱️  This may take 30-60 seconds for int8 models...")
+        print("  🔄 Calling pipeline.generateImages()...")
+        
+        let generationStartTime = Date()
+        
+        // For int8 models, the generation call might hang or take very long
+        // Add detailed logging to see where it gets stuck
+        let images: [CGImage?]
+        do {
+            // This is the call that might hang with int8 models
+            images = try pipeline.generateImages(configuration: generationConfig)
+            
+            let generationElapsed = Date().timeIntervalSince(generationStartTime)
+            print("  ✅ pipeline.generateImages() completed successfully in \(Int(generationElapsed)) seconds")
+        } catch {
+            let generationElapsed = Date().timeIntervalSince(generationStartTime)
+            print("  ❌ pipeline.generateImages() failed after \(Int(generationElapsed)) seconds")
+            print("  ❌ Error: \(error.localizedDescription)")
+            print("  ❌ Full error: \(error)")
+            
+            // For int8 models, common issues:
+            // 1. Wrong compute units - try .all or .cpuAndGPU instead of .cpuAndNeuralEngine
+            // 2. Model incompatibility - int8 model might be corrupted or incompatible
+            // 3. Memory issues - int8 models still need significant memory
+            
+            if error.localizedDescription.contains("timeout") || 
+               error.localizedDescription.contains("hang") ||
+               generationElapsed > 60 {
+                throw NSError(
+                    domain: "ImageGeneration",
+                    code: -1,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "Generation appears to have hung or timed out. For int8 models, try changing compute units in loadModel (try .all or .cpuAndGPU instead of .cpuAndNeuralEngine). Original error: \(error.localizedDescription)"
+                    ]
+                )
+            }
+            throw error
+        }
         
         // Stop progress timer
-        isGenerating = false
         DispatchQueue.main.async { [weak self] in
           self?.progressTimer?.invalidate()
         }
