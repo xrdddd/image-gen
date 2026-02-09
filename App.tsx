@@ -322,7 +322,7 @@ export default function App() {
             {downloadProgress && (
               <View style={styles.downloadContainer}>
                 <Text style={styles.downloadText}>
-                  Downloading {downloadProgress.overallPercentage.toFixed(1)}%
+                  Model downloading {downloadProgress.overallPercentage.toFixed(1)}%
                 </Text>
                 <Text style={styles.downloadSubtext}>
                   {(downloadProgress.loaded / 1024 / 1024 / 1024).toFixed(2)}GB / {(downloadProgress.total / 1024 / 1024 / 1024).toFixed(2)}GB
