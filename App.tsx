@@ -64,7 +64,7 @@ export default function App() {
         try {
           const loaded = await preloadModel();
           if (loaded) {
-            setModelStatus('Model is ready.');
+            setModelStatus('Model is ready. The first generation may take a while.');
             console.log('✅ Models loaded successfully');
           } else {
             setModelStatus('⚠️ Models found but failed to load');
