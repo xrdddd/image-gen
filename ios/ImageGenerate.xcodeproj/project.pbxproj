@@ -15,6 +15,7 @@
 		B18059E884C0ABDD17F3DC3D /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAC715A2D49A985799AEE119 /* ExpoModulesProvider.swift */; };
 		B983DA036DDB481ABD478751 /* noop-file.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D121031CA56438184E61EDD /* noop-file.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		F507CA3F2F3AB40E007DE4C1 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = F507CA3D2F3AB40E007DE4C1 /* InfoPlist.strings */; };
 		F5DD5EC82F3845C800E94AC0 /* ImageGenerationModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F5DD5EC62F3845C800E94AC0 /* ImageGenerationModule.m */; };
 		F5DD5EC92F3845C800E94AC0 /* ImageGenerationModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5DD5EC72F3845C800E94AC0 /* ImageGenerationModule.swift */; };
 		F5DD5ECF2F386BC700E94AC0 /* model in Resources */ = {isa = PBXBuildFile; fileRef = F5DD5ECE2F386BC700E94AC0 /* model */; };
@@ -35,6 +36,7 @@
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = ImageGenerate/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		F507CA3E2F3AB40E007DE4C1 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		F5DD5EA02F382DCC00E94AC0 /* ImageGenerate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ImageGenerate.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F5DD5EC62F3845C800E94AC0 /* ImageGenerationModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ImageGenerationModule.m; path = ImageGenerate/ImageGenerationModule.m; sourceTree = "<group>"; };
 		F5DD5EC72F3845C800E94AC0 /* ImageGenerationModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ImageGenerationModule.swift; path = ImageGenerate/ImageGenerationModule.swift; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				4D121031CA56438184E61EDD /* noop-file.swift */,
 				26C18D630C6749E190C50B65 /* ImageGenerate-Bridging-Header.h */,
+				F507CA3D2F3AB40E007DE4C1 /* InfoPlist.strings */,
 			);
 			name = ImageGenerate;
 			sourceTree = "<group>";
@@ -195,7 +198,7 @@
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
 			packageReferences = (
-				F5DD5ED02F38A3BF00E94AC0 /* XCLocalSwiftPackageReference "ml-stable-diffusion" */,
+				F5DD5ED02F38A3BF00E94AC0 /* XCLocalSwiftPackageReference "../../ml-stable-diffusion" */,
 			);
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
 			projectDirPath = "";
@@ -215,6 +218,7 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
+				F507CA3F2F3AB40E007DE4C1 /* InfoPlist.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -341,6 +345,17 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXVariantGroup section */
+		F507CA3D2F3AB40E007DE4C1 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				F507CA3E2F3AB40E007DE4C1 /* en */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -359,6 +374,7 @@
 					"FB_SONARKIT_ENABLED=1",
 				);
 				INFOPLIST_FILE = ImageGenerate/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "AI图片生成 - 永久免费, AI Image Generator, Free";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -394,6 +410,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 63G6XMX2SK;
 				INFOPLIST_FILE = ImageGenerate/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "AI图片生成 - 永久免费, AI Image Generator, Free";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -571,7 +588,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		F5DD5ED02F38A3BF00E94AC0 /* XCLocalSwiftPackageReference "ml-stable-diffusion" */ = {
+		F5DD5ED02F38A3BF00E94AC0 /* XCLocalSwiftPackageReference "../../ml-stable-diffusion" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "../../ml-stable-diffusion";
 		};
