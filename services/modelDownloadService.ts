@@ -26,13 +26,12 @@ export interface ModelDownloadInfo {
 const MODEL_BASE_URL = process.env.EXPO_PUBLIC_MODEL_BASE_URL || 
   'https://image-gen-pd123.s3.eu-north-1.amazonaws.com/stable-diffusion';
 
-// Optional cache-busting version. Bump EXPO_PUBLIC_MODEL_VERSION when you update files in S3.
-const MODEL_VERSION = process.env.EXPO_PUBLIC_MODEL_VERSION;
+// Cache-busting version. Update this when you update files in S3 to force clients to download new files.
+// You can also set EXPO_PUBLIC_MODEL_VERSION environment variable to override this.
+// Format: Use a version number (e.g., "2") or timestamp (e.g., "20240218") - bump it when files change.
+const MODEL_VERSION = process.env.EXPO_PUBLIC_MODEL_VERSION || '1';
 
 function withVersion(url: string): string {
-  if (!MODEL_VERSION) {
-    return url;
-  }
   const separator = url.includes('?') ? '&' : '?';
   return `${url}${separator}v=${encodeURIComponent(MODEL_VERSION)}`;
 }
@@ -208,6 +207,27 @@ export async function getCachedModelPath(modelName: string): Promise<string | nu
 }
 
 /**
+ * Get actual file size from HTTP headers
+ */
+async function getFileSizeFromHeaders(url: string): Promise<number | null> {
+  try {
+    const response = await fetch(url, { method: 'HEAD' });
+    if (response.ok) {
+      const contentLength = response.headers.get('Content-Length');
+      if (contentLength) {
+        const size = parseInt(contentLength, 10);
+        if (!isNaN(size) && size > 0) {
+          return size;
+        }
+      }
+    }
+  } catch (error) {
+    console.log(`   ⚠️ Could not fetch file size from headers: ${error}`);
+  }
+  return null;
+}
+
+/**
  * Download a single model file
  */
 export async function downloadModel(
@@ -235,9 +255,17 @@ export async function downloadModel(
   const tempPath = `${downloadPath}.tmp`;
   
   try {
+    // Fetch actual file size from server headers
+    const actualSize = await getFileSizeFromHeaders(modelInfo.url);
+    const fileSize = actualSize || modelInfo.size; // Use actual size if available, otherwise fallback to hardcoded
+    
     console.log(`📥 Downloading ${modelInfo.name} from S3...`);
     console.log(`   URL: ${modelInfo.url}`);
-    console.log(`   Expected size: ${(modelInfo.size / 1024 / 1024).toFixed(2)} MB`);
+    if (actualSize) {
+      console.log(`   Actual size: ${(actualSize / 1024 / 1024).toFixed(2)} MB (from server)`);
+    } else {
+      console.log(`   Expected size: ${(modelInfo.size / 1024 / 1024).toFixed(2)} MB (estimated)`);
+    }
     
     // Start download with progress tracking
     const downloadResumable = FileSystem.createDownloadResumable(
@@ -248,13 +276,13 @@ export async function downloadModel(
         const loaded = downloadProgress.totalBytesWritten || 0;
         const expectedTotal = downloadProgress.totalBytesExpectedToWrite;
         
-        // Use expected total if valid, otherwise use model info size, otherwise calculate from loaded
-        let total = modelInfo.size;
+        // Use expected total if valid, otherwise use actual file size from headers, otherwise fallback to model info size
+        let total = fileSize; // Use the actual size we fetched from headers
         if (expectedTotal && expectedTotal > 0) {
-          total = expectedTotal;
+          total = expectedTotal; // Download progress provides the most accurate size
         } else if (total <= 0) {
           // If we don't know the total, estimate based on loaded bytes (assume we're at least 1% done)
-          total = Math.max(loaded * 100, modelInfo.size);
+          total = Math.max(loaded * 100, fileSize);
         }
         
         // Calculate percentage safely
@@ -263,7 +291,7 @@ export async function downloadModel(
           percentage = Math.min((loaded / total) * 100, 100);
         } else if (loaded > 0) {
           // If we have loaded bytes but no total, show indeterminate progress
-          percentage = Math.min((loaded / modelInfo.size) * 100, 99); // Cap at 99% if total unknown
+          percentage = Math.min((loaded / fileSize) * 100, 99); // Cap at 99% if total unknown
         }
         
         const progress: DownloadProgress = {
@@ -302,11 +330,11 @@ export async function downloadModel(
     }
     
     // Verify file size is reasonable (not 0 or suspiciously small)
-    const fileSize = tempInfo.size || 0;
-    console.log(`   Downloaded: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+    const downloadedFileSize = tempInfo.size || 0;
+    console.log(`   Downloaded: ${(downloadedFileSize / 1024 / 1024).toFixed(2)} MB`);
     
     // Check if it's an HTML error page or directory listing (common S3 issue)
-    if (fileSize > 0 && fileSize < 10000) {
+    if (downloadedFileSize > 0 && downloadedFileSize < 10000) {
       try {
         const content = await FileSystem.readAsStringAsync(tempPath, { 
           encoding: FileSystem.EncodingType.UTF8, 
@@ -330,9 +358,9 @@ export async function downloadModel(
       }
     }
     
-    if (fileSize === 0 && modelInfo.size > 1024) {
+    if (downloadedFileSize === 0 && fileSize > 1024) {
       throw new Error(
-        `Downloaded file is 0 bytes but expected ${(modelInfo.size / 1024 / 1024).toFixed(2)} MB.\n` +
+        `Downloaded file is 0 bytes but expected ${(fileSize / 1024 / 1024).toFixed(2)} MB.\n` +
         `This usually means:\n` +
         `1. The file doesn't exist at: ${modelInfo.url}\n` +
         `2. Or ${modelInfo.name} is a directory and needs to be uploaded as tar.gz\n` +
@@ -341,8 +369,8 @@ export async function downloadModel(
     }
     
     // Warn if file size is much smaller than expected
-    if (fileSize > 0 && modelInfo.size > 0 && fileSize < modelInfo.size * 0.1) {
-      console.warn(`⚠️ Warning: Downloaded file is much smaller than expected. Expected: ${(modelInfo.size / 1024 / 1024).toFixed(2)} MB, Got: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+    if (downloadedFileSize > 0 && fileSize > 0 && downloadedFileSize < fileSize * 0.1) {
+      console.warn(`⚠️ Warning: Downloaded file is much smaller than expected. Expected: ${(fileSize / 1024 / 1024).toFixed(2)} MB, Got: ${(downloadedFileSize / 1024 / 1024).toFixed(2)} MB`);
     }
     
     // Handle .mlmodelc directories (downloaded as tar.gz)
@@ -454,24 +482,36 @@ export async function downloadAllModels(
     return;
   }
   
-  // Calculate total size
-  const totalSize = modelsToDownload.reduce((sum, m) => sum + m.size, 0);
+  // Fetch actual file sizes from server for accurate progress calculation
+  console.log('📊 Fetching actual file sizes from server...');
+  const modelsWithActualSizes = await Promise.all(
+    modelsToDownload.map(async (model) => {
+      const actualSize = await getFileSizeFromHeaders(model.url);
+      const fileSize = actualSize || model.size; // Use actual size if available, otherwise fallback
+      if (actualSize && actualSize !== model.size) {
+        console.log(`   ${model.name}: ${(actualSize / 1024 / 1024).toFixed(2)} MB (was ${(model.size / 1024 / 1024).toFixed(2)} MB)`);
+      }
+      return { ...model, actualSize: fileSize };
+    })
+  );
   
-  console.log(`📦 Downloading ${modelsToDownload.length} missing models (${(totalSize / 1024 / 1024 / 1024).toFixed(2)} GB)...`);
+  // Calculate total size using actual sizes
+  const totalSize = modelsWithActualSizes.reduce((sum, m) => sum + m.actualSize, 0);
+  
+  console.log(`📦 Downloading ${modelsToDownload.length} missing models (${(totalSize / 1024 / 1024 / 1024).toFixed(2)} GB total)...`);
   console.log(`   Models to download: ${modelsToDownload.map(m => m.name).join(', ')}`);
   
   let totalDownloaded = 0;
   
-  for (let i = 0; i < modelsToDownload.length; i++) {
-    const model = modelsToDownload[i];
+  for (let i = 0; i < modelsWithActualSizes.length; i++) {
+    const model = modelsWithActualSizes[i];
     
     try {
-      console.log(`📥 Starting download: ${model.name} (${(model.size / 1024 / 1024).toFixed(2)} MB)`);
+      console.log(`📥 Starting download: ${model.name} (${(model.actualSize / 1024 / 1024).toFixed(2)} MB)`);
       const downloadedPath = await downloadModel(model, (progress) => {
         if (onProgress) {
           // Calculate overall progress across all files
           // Progress = (files completed + current file progress) / total files
-          const currentFileProgress = (progress.loaded / model.size) * model.size; // Bytes downloaded for current file
           const overallLoaded = totalDownloaded + progress.loaded;
           const overallPercentage = totalSize > 0 
             ? Math.min(100, Math.max(0, (overallLoaded / totalSize) * 100))
@@ -486,8 +526,8 @@ export async function downloadAllModels(
         }
       });
       
-      // Update total downloaded after file completes
-      totalDownloaded += model.size;
+      // Update total downloaded after file completes (use actual size)
+      totalDownloaded += model.actualSize;
       
       // Send final progress for this file (100% of this file)
       if (onProgress) {

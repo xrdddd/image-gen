@@ -10,14 +10,13 @@ import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
 
 const S3_BASE_URL = 'https://image-gen-pd123.s3.eu-north-1.amazonaws.com/stable-diffusion';
-// Optional cache-busting version. Bump EXPO_PUBLIC_MODEL_VERSION when you update files in S3.
-const MODEL_VERSION = process.env.EXPO_PUBLIC_MODEL_VERSION;
+// Cache-busting version. Update this when you update files in S3 to force clients to download new files.
+// You can also set EXPO_PUBLIC_MODEL_VERSION environment variable to override this.
+// Format: Use a version number (e.g., "2") or timestamp (e.g., "20240218") - bump it when files change.
+const MODEL_VERSION = process.env.EXPO_PUBLIC_MODEL_VERSION || '1';
 
 function buildVersionedUrl(path: string): string {
   const base = `${S3_BASE_URL}/${path}`;
-  if (!MODEL_VERSION) {
-    return base;
-  }
   const separator = base.includes('?') ? '&' : '?';
   return `${base}${separator}v=${encodeURIComponent(MODEL_VERSION)}`;
 }
