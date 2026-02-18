@@ -366,7 +366,7 @@
 				CODE_SIGN_ENTITLEMENTS = ImageGenerate/ImageGenerate.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 63G6XMX2SK;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -374,7 +374,7 @@
 					"FB_SONARKIT_ENABLED=1",
 				);
 				INFOPLIST_FILE = ImageGenerate/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "AI图片生成 - 永久免费, AI Image Generator, Free";
+				INFOPLIST_KEY_CFBundleDisplayName = "AI图片生成 - 永久离线使用, AI Image Generator, Offline Use";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -407,10 +407,10 @@
 				CODE_SIGN_ENTITLEMENTS = ImageGenerate/ImageGenerate.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 63G6XMX2SK;
 				INFOPLIST_FILE = ImageGenerate/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "AI图片生成 - 永久免费, AI Image Generator, Free";
+				INFOPLIST_KEY_CFBundleDisplayName = "AI图片生成 - 永久离线使用, AI Image Generator, Offline Use";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
