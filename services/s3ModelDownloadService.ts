@@ -10,6 +10,17 @@ import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
 
 const S3_BASE_URL = 'https://image-gen-pd123.s3.eu-north-1.amazonaws.com/stable-diffusion';
+// Optional cache-busting version. Bump EXPO_PUBLIC_MODEL_VERSION when you update files in S3.
+const MODEL_VERSION = process.env.EXPO_PUBLIC_MODEL_VERSION;
+
+function buildVersionedUrl(path: string): string {
+  const base = `${S3_BASE_URL}/${path}`;
+  if (!MODEL_VERSION) {
+    return base;
+  }
+  const separator = base.includes('?') ? '&' : '?';
+  return `${base}${separator}v=${encodeURIComponent(MODEL_VERSION)}`;
+}
 
 export interface DownloadProgress {
   loaded: number;
@@ -25,7 +36,7 @@ export async function downloadFromS3(
   localPath: string,
   onProgress?: (progress: DownloadProgress) => void
 ): Promise<string> {
-  const url = `${S3_BASE_URL}/${s3Path}`;
+  const url = buildVersionedUrl(s3Path);
   
   console.log(`📥 Downloading from S3: ${url}`);
   
@@ -109,7 +120,7 @@ export async function downloadModelDirectory(
  */
 export async function checkS3FileExists(s3Path: string): Promise<boolean> {
   try {
-    const url = `${S3_BASE_URL}/${s3Path}`;
+    const url = buildVersionedUrl(s3Path);
     const response = await fetch(url, { method: 'HEAD' });
     return response.ok;
   } catch {

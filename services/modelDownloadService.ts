@@ -26,6 +26,17 @@ export interface ModelDownloadInfo {
 const MODEL_BASE_URL = process.env.EXPO_PUBLIC_MODEL_BASE_URL || 
   'https://image-gen-pd123.s3.eu-north-1.amazonaws.com/stable-diffusion';
 
+// Optional cache-busting version. Bump EXPO_PUBLIC_MODEL_VERSION when you update files in S3.
+const MODEL_VERSION = process.env.EXPO_PUBLIC_MODEL_VERSION;
+
+function withVersion(url: string): string {
+  if (!MODEL_VERSION) {
+    return url;
+  }
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}v=${encodeURIComponent(MODEL_VERSION)}`;
+}
+
 // Model components to download
 // IMPORTANT: .mlmodelc files are directories. S3 cannot serve directories directly.
 // You MUST upload them as tar.gz archives to S3, then download and extract them.
@@ -36,43 +47,43 @@ const MODEL_COMPONENTS: ModelDownloadInfo[] = [
   {
     name: 'TextEncoder.mlmodelc',
     // Try tar.gz first, fallback to directory (won't work but shows better error)
-    url: `${MODEL_BASE_URL}/TextEncoder.mlmodelc.tar.gz`,
+    url: withVersion(`${MODEL_BASE_URL}/TextEncoder.mlmodelc.tar.gz`),
     size: 234.9 * 1024 * 1024, // 234.9 MB (uncompressed)
     required: true,
   },
   {
     name: 'UnetChunk1.mlmodelc',
-    url: `${MODEL_BASE_URL}/UnetChunk1.mlmodelc.tar.gz`,
+    url: withVersion(`${MODEL_BASE_URL}/UnetChunk1.mlmodelc.tar.gz`),
     size: 846.9 * 1024 * 1024, // 846.9 MB (uncompressed)
     required: true,
   },
   {
     name: 'UnetChunk2.mlmodelc',
-    url: `${MODEL_BASE_URL}/UnetChunk2.mlmodelc.tar.gz`,
+    url: withVersion(`${MODEL_BASE_URL}/UnetChunk2.mlmodelc.tar.gz`),
     size: 793.6 * 1024 * 1024, // 793.6 MB (uncompressed)
     required: true,
   },
   {
     name: 'VAEDecoder.mlmodelc',
-    url: `${MODEL_BASE_URL}/VAEDecoder.mlmodelc.tar.gz`,
+    url: withVersion(`${MODEL_BASE_URL}/VAEDecoder.mlmodelc.tar.gz`),
     size: 94.6 * 1024 * 1024, // 94.6 MB (uncompressed)
     required: true,
   },
   {
     name: 'SafetyChecker.mlmodelc',
-    url: `${MODEL_BASE_URL}/SafetyChecker.mlmodelc.tar.gz`,
+    url: withVersion(`${MODEL_BASE_URL}/SafetyChecker.mlmodelc.tar.gz`),
     size: 580.2 * 1024 * 1024, // 580.2 MB (uncompressed)
     required: false,
   },
   {
     name: 'vocab.json',
-    url: `${MODEL_BASE_URL}/vocab.json`,
+    url: withVersion(`${MODEL_BASE_URL}/vocab.json`),
     size: 842.1 * 1024, // 842.1 KB
     required: true,
   },
   {
     name: 'merges.txt',
-    url: `${MODEL_BASE_URL}/merges.txt`,
+    url: withVersion(`${MODEL_BASE_URL}/merges.txt`),
     size: 512.4 * 1024, // 512.4 KB
     required: true,
   },
