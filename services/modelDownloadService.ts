@@ -19,6 +19,7 @@ export interface ModelDownloadInfo {
   url: string;
   size: number; // in bytes
   required: boolean;
+  actualSize?: number; // Optional: actual size from server headers (if pre-fetched)
 }
 
 // Model download URLs - configure these to point to your cloud storage
@@ -255,16 +256,29 @@ export async function downloadModel(
   const tempPath = `${downloadPath}.tmp`;
   
   try {
-    // Fetch actual file size from server headers
-    const actualSize = await getFileSizeFromHeaders(modelInfo.url);
-    const fileSize = actualSize || modelInfo.size; // Use actual size if available, otherwise fallback to hardcoded
+    // Use pre-fetched actualSize if available, otherwise fetch from headers
+    let actualSize: number | null = null;
+    let fileSize: number;
     
-    console.log(`📥 Downloading ${modelInfo.name} from S3...`);
-    console.log(`   URL: ${modelInfo.url}`);
-    if (actualSize) {
-      console.log(`   Actual size: ${(actualSize / 1024 / 1024).toFixed(2)} MB (from server)`);
+    if (modelInfo.actualSize !== undefined && modelInfo.actualSize > 0) {
+      // Use pre-fetched size (from downloadAllModels)
+      actualSize = modelInfo.actualSize;
+      fileSize = actualSize;
+      console.log(`📥 Downloading ${modelInfo.name} from S3...`);
+      console.log(`   URL: ${modelInfo.url}`);
+      console.log(`   Actual size: ${(actualSize / 1024 / 1024).toFixed(2)} MB (pre-fetched)`);
     } else {
-      console.log(`   Expected size: ${(modelInfo.size / 1024 / 1024).toFixed(2)} MB (estimated)`);
+      // Fetch actual file size from server headers
+      actualSize = await getFileSizeFromHeaders(modelInfo.url);
+      fileSize = actualSize || modelInfo.size; // Use actual size if available, otherwise fallback to hardcoded
+      
+      console.log(`📥 Downloading ${modelInfo.name} from S3...`);
+      console.log(`   URL: ${modelInfo.url}`);
+      if (actualSize) {
+        console.log(`   Actual size: ${(actualSize / 1024 / 1024).toFixed(2)} MB (from server)`);
+      } else {
+        console.log(`   Expected size: ${(modelInfo.size / 1024 / 1024).toFixed(2)} MB (estimated)`);
+      }
     }
     
     // Start download with progress tracking
@@ -490,6 +504,8 @@ export async function downloadAllModels(
       const fileSize = actualSize || model.size; // Use actual size if available, otherwise fallback
       if (actualSize && actualSize !== model.size) {
         console.log(`   ${model.name}: ${(actualSize / 1024 / 1024).toFixed(2)} MB (was ${(model.size / 1024 / 1024).toFixed(2)} MB)`);
+      } else if (actualSize) {
+        console.log(`   ${model.name}: ${(actualSize / 1024 / 1024).toFixed(2)} MB (matches expected)`);
       }
       return { ...model, actualSize: fileSize };
     })
@@ -498,10 +514,18 @@ export async function downloadAllModels(
   // Calculate total size using actual sizes
   const totalSize = modelsWithActualSizes.reduce((sum, m) => sum + m.actualSize, 0);
   
-  console.log(`📦 Downloading ${modelsToDownload.length} missing models (${(totalSize / 1024 / 1024 / 1024).toFixed(2)} GB total)...`);
-  console.log(`   Models to download: ${modelsToDownload.map(m => m.name).join(', ')}`);
+  // Debug: Show breakdown of total size calculation
+  console.log(`📦 Downloading ${modelsToDownload.length} missing models:`);
+  modelsWithActualSizes.forEach(m => {
+    console.log(`   - ${m.name}: ${(m.actualSize / 1024 / 1024).toFixed(2)} MB`);
+  });
+  console.log(`   Total: ${(totalSize / 1024 / 1024 / 1024).toFixed(2)} GB`);
+  console.log(`   Models: ${modelsToDownload.map(m => m.name).join(', ')}`);
   
   let totalDownloaded = 0;
+  // Track actual file sizes as we discover them during download (more accurate than HEAD requests)
+  const actualFileSizes: { [key: string]: number } = {};
+  let dynamicTotalSize = totalSize; // Will be updated as we discover actual sizes
   
   for (let i = 0; i < modelsWithActualSizes.length; i++) {
     const model = modelsWithActualSizes[i];
@@ -509,36 +533,48 @@ export async function downloadAllModels(
     try {
       console.log(`📥 Starting download: ${model.name} (${(model.actualSize / 1024 / 1024).toFixed(2)} MB)`);
       const downloadedPath = await downloadModel(model, (progress) => {
+        // Update actual file size if we get a more accurate total from the download
+        if (progress.total > 0 && (!actualFileSizes[model.name] || actualFileSizes[model.name] !== progress.total)) {
+          const oldSize = actualFileSizes[model.name] || model.actualSize;
+          actualFileSizes[model.name] = progress.total;
+          
+          // Update dynamic total: subtract old size, add new size
+          if (oldSize !== progress.total) {
+            dynamicTotalSize = dynamicTotalSize - oldSize + progress.total;
+            console.log(`   📊 Updated size for ${model.name}: ${(progress.total / 1024 / 1024).toFixed(2)} MB (was ${(oldSize / 1024 / 1024).toFixed(2)} MB)`);
+          }
+        }
+        
         if (onProgress) {
-          // Calculate overall progress across all files
-          // Progress = (files completed + current file progress) / total files
+          // Calculate overall progress using dynamic total size
           const overallLoaded = totalDownloaded + progress.loaded;
-          const overallPercentage = totalSize > 0 
-            ? Math.min(100, Math.max(0, (overallLoaded / totalSize) * 100))
+          const overallPercentage = dynamicTotalSize > 0 
+            ? Math.min(100, Math.max(0, (overallLoaded / dynamicTotalSize) * 100))
             : 0;
           
           onProgress({
             currentModel: model.name,
             overallPercentage: overallPercentage,
             loaded: overallLoaded,
-            total: totalSize
+            total: dynamicTotalSize
           });
         }
       });
       
-      // Update total downloaded after file completes (use actual size)
-      totalDownloaded += model.actualSize;
+      // Update total downloaded after file completes (use actual discovered size)
+      const fileActualSize = actualFileSizes[model.name] || model.actualSize;
+      totalDownloaded += fileActualSize;
       
       // Send final progress for this file (100% of this file)
       if (onProgress) {
-        const overallPercentage = totalSize > 0 
-          ? Math.min(100, Math.max(0, (totalDownloaded / totalSize) * 100))
+        const overallPercentage = dynamicTotalSize > 0 
+          ? Math.min(100, Math.max(0, (totalDownloaded / dynamicTotalSize) * 100))
           : 0;
         onProgress({
           currentModel: model.name,
           overallPercentage: overallPercentage,
           loaded: totalDownloaded,
-          total: totalSize
+          total: dynamicTotalSize
         });
       }
       
