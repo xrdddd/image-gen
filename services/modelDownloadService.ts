@@ -107,21 +107,54 @@ export async function isModelCached(modelName: string): Promise<boolean> {
   try {
     const cacheDir = getModelsCacheDir();
     const modelPath = `${cacheDir}${modelName}`;
-    const fileInfo = await FileSystem.getInfoAsync(modelPath);
     
-    // For .mlmodelc directories, check if it exists and has content
-    if (modelName.endsWith('.mlmodelc')) {
-      if (fileInfo.exists && fileInfo.isDirectory) {
-        // Check if directory has files (not empty)
-        const dirContents = await FileSystem.readDirectoryAsync(modelPath);
-        return dirContents.length > 0;
-      }
+    // Ensure cache directory exists
+    const dirInfo = await FileSystem.getInfoAsync(cacheDir);
+    if (!dirInfo.exists) {
+      console.log(`📁 Cache directory doesn't exist: ${cacheDir}`);
       return false;
     }
     
-    return fileInfo.exists;
-  } catch (error) {
-    console.error(`Error checking cache for ${modelName}:`, error);
+    const fileInfo = await FileSystem.getInfoAsync(modelPath);
+    
+    if (!fileInfo.exists) {
+      console.log(`❌ Model not found in cache: ${modelName} at ${modelPath}`);
+      return false;
+    }
+    
+    // For .mlmodelc directories, check if it exists and has content
+    if (modelName.endsWith('.mlmodelc')) {
+      if (fileInfo.isDirectory) {
+        // Check if directory has files (not empty)
+        try {
+          const dirContents = await FileSystem.readDirectoryAsync(modelPath);
+          const hasContent = dirContents.length > 0;
+          console.log(`📁 ${modelName}: ${hasContent ? 'found' : 'empty'} directory with ${dirContents.length} items`);
+          return hasContent;
+        } catch (dirError: any) {
+          console.error(`❌ Error reading directory ${modelPath}:`, dirError);
+          return false;
+        }
+      } else {
+        console.log(`⚠️ ${modelName} exists but is not a directory (expected .mlmodelc to be a directory)`);
+        return false;
+      }
+    }
+    
+    // For regular files, check if they have content
+    if (fileInfo.size !== undefined && fileInfo.size > 0) {
+      console.log(`✅ ${modelName}: found in cache (${(fileInfo.size / 1024).toFixed(1)} KB)`);
+      return true;
+    } else if (fileInfo.size === 0) {
+      console.log(`⚠️ ${modelName}: found but is 0 bytes (corrupted?)`);
+      return false;
+    }
+    
+    // If size is unknown, assume it exists (for compatibility)
+    console.log(`✅ ${modelName}: found in cache (size unknown)`);
+    return true;
+  } catch (error: any) {
+    console.error(`❌ Error checking cache for ${modelName}:`, error?.message || error);
     return false;
   }
 }
@@ -152,25 +185,47 @@ export async function areAllModelsCached(): Promise<boolean> {
  * Uses native module to check bundle (which JS can't access directly)
  */
 async function checkModelLocation(modelName: string): Promise<'bundle' | 'documents' | 'none'> {
+  // First, check Documents cache (most reliable check, works even if native module fails)
+  const isCached = await isModelCached(modelName);
+  if (isCached) {
+    console.log(`📍 ${modelName}: found in documents cache`);
+    return 'documents';
+  }
+  
+  // Then try native module to check bundle (only if not in documents)
   try {
-    // Try to use native module to check bundle
     const { ImageGenerationModuleNative } = require('./native/ImageGenerationModule');
     if (ImageGenerationModuleNative && ImageGenerationModuleNative.checkModelLocation) {
-      const location = await ImageGenerationModuleNative.checkModelLocation(modelName);
-      console.log(`📍 ${modelName} location: ${location}`);
-      return location;
+      try {
+        const location = await ImageGenerationModuleNative.checkModelLocation(modelName);
+        console.log(`📍 ${modelName} location (from native): ${location}`);
+        
+        // If native says 'documents', verify it with our check
+        if (location === 'documents') {
+          // Double-check with our cache check
+          if (isCached) {
+            return 'documents';
+          } else {
+            console.log(`⚠️ Native says 'documents' but our check says not cached - using 'none'`);
+            return 'none';
+          }
+        }
+        
+        return location;
+      } catch (nativeError: any) {
+        console.log(`⚠️ Native module check failed for ${modelName}:`, nativeError?.message || nativeError);
+        // Fall through to return 'none'
+      }
     } else {
       console.log(`⚠️ Native module or checkModelLocation method not available for ${modelName}`);
     }
   } catch (error: any) {
-    console.log(`❌ Error checking location for ${modelName}:`, error?.message || error);
+    console.log(`❌ Error accessing native module for ${modelName}:`, error?.message || error);
   }
   
-  // Fallback: only check Documents (can't check bundle from JS)
-  const isCached = await isModelCached(modelName);
-  const fallbackLocation = isCached ? 'documents' : 'none';
-  console.log(`📍 ${modelName} fallback location: ${fallbackLocation}`);
-  return fallbackLocation;
+  // Not found in documents, and native check failed or said 'none'
+  console.log(`📍 ${modelName}: not found (none)`);
+  return 'none';
 }
 
 /**
@@ -594,6 +649,45 @@ export async function downloadAllModels(
 export function getTotalDownloadSize(): number {
   const requiredModels = MODEL_COMPONENTS.filter(m => m.required);
   return requiredModels.reduce((sum, m) => sum + m.size, 0);
+}
+
+/**
+ * Clean up any temporary download files (e.g., .tmp files from interrupted downloads)
+ * This should be called on app startup to prevent issues with incomplete downloads
+ */
+export async function cleanupTempFiles(): Promise<void> {
+  try {
+    const cacheDir = getModelsCacheDir();
+    const dirInfo = await FileSystem.getInfoAsync(cacheDir);
+    
+    if (!dirInfo.exists) {
+      return; // No cache directory, nothing to clean
+    }
+    
+    // List all files in cache directory
+    const files = await FileSystem.readDirectoryAsync(cacheDir);
+    let cleanedCount = 0;
+    
+    for (const file of files) {
+      // Remove any .tmp files (incomplete downloads)
+      if (file.endsWith('.tmp')) {
+        try {
+          const tempPath = `${cacheDir}${file}`;
+          await FileSystem.deleteAsync(tempPath, { idempotent: true });
+          console.log(`🧹 Cleaned up temp file: ${file}`);
+          cleanedCount++;
+        } catch (error: any) {
+          console.log(`⚠️ Failed to delete temp file ${file}:`, error?.message || error);
+        }
+      }
+    }
+    
+    if (cleanedCount > 0) {
+      console.log(`✅ Cleaned up ${cleanedCount} temporary file(s)`);
+    }
+  } catch (error: any) {
+    console.log(`⚠️ Error cleaning up temp files:`, error?.message || error);
+  }
 }
 
 /**

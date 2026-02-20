@@ -19,7 +19,8 @@ import {
   areAllModelsCached, 
   downloadAllModels, 
   getTotalDownloadSize,
-  clearModelCache 
+  clearModelCache,
+  cleanupTempFiles
 } from './services/modelDownloadService';
 
 export default function App() {
@@ -36,6 +37,10 @@ export default function App() {
 
   // Check if local generation is available on mount
   React.useEffect(() => {
+    // Clean up any temp files from previous sessions first
+    cleanupTempFiles().catch(err => {
+      console.log('Error cleaning temp files:', err);
+    });
     checkLocalAvailability();
   }, []);
 
